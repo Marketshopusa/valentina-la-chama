@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the platform",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique ID of the user" },
+        "displayName": { "type": "string", "description": "The display name of the user" },
+        "email": { "type": "string", "description": "The email of the user" },
+        "photoURL": { "type": "string", "description": "The photo URL of the user" },
+        "activeScenarioId": { "type": "string", "description": "ID of the currently active story scenario" },
+        "currentCardMedia": { "type": "string", "description": "Current card image or video URL" },
+        "activeScenario": { "type": "object", "description": "Complete data object of the last active story scenario" },
+        "scenarios": { "type": "array", "description": "List of all user scenarios and catalog stories" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Character": {
+      "title": "Character",
+      "description": "An AI character created by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique ID of the character" },
+        "name": { "type": "string", "description": "The name of the character" },
+        "description": { "type": "string", "description": "A short description of the character" },
+        "personality": { "type": "string", "description": "The detailed personality of the character" },
+        "avatarUrl": { "type": "string", "description": "The URL of the character's avatar" },
+        "greeting": { "type": "string", "description": "The first message the character sends" },
+        "creatorId": { "type": "string", "description": "The UID of the user who created the character" },
+        "isPublic": { "type": "boolean", "description": "Whether the character is visible to everyone" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the character was created" }
+      },
+      "required": ["name", "personality", "creatorId"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "A message in a chat session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique ID of the message" },
+        "characterId": { "type": "string", "description": "The ID of the character being chatted with" },
+        "userId": { "type": "string", "description": "The ID of the user in the chat" },
+        "text": { "type": "string", "description": "The content of the message" },
+        "sender": { "type": "string", "enum": ["user", "ai"], "description": "Who sent the message" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the message was sent" }
+      },
+      "required": ["characterId", "userId", "text", "sender", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/characters/{characterId}": {
+      "schema": "Character",
+      "description": "AI characters"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat history between a user and a character"
+    }
+  }
+}

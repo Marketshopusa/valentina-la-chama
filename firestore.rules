@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.creatorId;
+    }
+
+    function isValidUser(data) {
+      return data == null || (
+        (!('uid' in data) || data.uid is string) &&
+        (!('email' in data) || data.email is string)
+      );
+    }
+
+    function isValidCharacter(data) {
+      return data.keys().hasAll(['name', 'personality', 'creatorId']) &&
+             data.name is string && data.name.size() < 100 &&
+             data.personality is string && data.personality.size() < 2000 &&
+             data.creatorId == request.auth.uid;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['characterId', 'userId', 'text', 'sender', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.sender in ['user', 'ai'] &&
+             data.text is string && data.text.size() < 5000;
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Characters
+    match /characters/{characterId} {
+      allow read: if true; // Public characters can be seen by anyone
+      allow create: if isAuthenticated() && isValidCharacter(request.resource.data);
+      allow update: if isDocOwner() && isValidCharacter(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    // Chats
+    match /chats/{chatId}/messages/{messageId} {
+      // chatId is usually a combination of userId and characterId
+      allow read: if isAuthenticated() && (chatId.matches(".*" + request.auth.uid + ".*"));
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+    }
+  }
+}

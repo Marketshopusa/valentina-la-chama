@@ -1,0 +1,6 @@
+{
+  "name": "Tu Persona Ideal",
+  "description": "Juego de rol inmersivo con IA totalmente adaptable al acento, tono de voz y personalidad que indiques.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
