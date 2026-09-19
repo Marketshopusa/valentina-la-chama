@@ -317,7 +317,9 @@ const App: React.FC = () => {
   const [customApiKey, setCustomApiKey] = useState<string>('');
   const [isTyping, setIsTyping] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
-  const [hasEntered, setHasEntered] = useState(true);
+  // Show the branded intro cover (PromoTeaser) on first load; entering or logging
+  // in sets this to true. Returning within a session keeps them inside the app.
+  const [hasEntered, setHasEntered] = useState(false);
 
   useEffect(() => {
     try {
