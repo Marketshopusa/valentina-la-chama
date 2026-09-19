@@ -1825,6 +1825,11 @@ Return ONLY the physical description as a single continuous paragraph without in
     });
   });
 
+  // Unknown API routes should return JSON 404 instead of falling through to the SPA.
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: `Unknown API endpoint: ${req.method} ${req.originalUrl}` });
+  });
+
   // Vite middleware for development. `vite` is a heavy dev-only dependency, so it
   // is imported dynamically to keep it out of the production runtime path.
   if (process.env.NODE_ENV !== "production") {
@@ -1845,16 +1850,26 @@ Return ONLY the physical description as a single continuous paragraph without in
     });
   }
 
+  // Centralized error handler: any error thrown/forwarded by a route lands here
+  // as a JSON response instead of a hanging request or HTML error page.
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("Unhandled server error:", err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: err?.message || "Internal server error" });
+  });
+
   const server = app.listen(PORT, HOST, () => {
     console.log(`Server running on http://${HOST}:${PORT}`);
   });
 
-  process.on('SIGTERM', () => {
-    server.close();
-  });
-  process.on('SIGINT', () => {
-    server.close();
-  });
+  const shutdown = (signal: string) => {
+    console.log(`${signal} received, shutting down gracefully...`);
+    server.close(() => process.exit(0));
+    // Force-exit if connections don't drain in time.
+    setTimeout(() => process.exit(0), 10000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 startServer();
