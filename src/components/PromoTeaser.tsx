@@ -2,16 +2,21 @@ import React from 'react';
 import { Phone, Flame, Globe, LogIn } from 'lucide-react';
 
 interface PromoTeaserProps {
+  /** Primary CTA — must open Google auth (no guest bypass). */
   onEnter: () => void;
   onGoogleLogin?: () => void;
   onOpenAuthModal?: () => void;
   personaName?: string;
   personaImage?: string;
+  /** True when a real Google account is already signed in. */
+  isAuthenticated?: boolean;
 }
 
 const PromoTeaser: React.FC<PromoTeaserProps> = ({ 
   onEnter, 
-  onGoogleLogin, 
+  onGoogleLogin,
+  onOpenAuthModal,
+  isAuthenticated = false,
   personaName = 'Tu Persona Ideal', 
   personaImage = 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500' 
 }) => {
@@ -85,21 +90,34 @@ const PromoTeaser: React.FC<PromoTeaserProps> = ({
 
       <div className="relative z-10 w-full mb-4">
         <button 
-          onClick={onEnter} 
+          onClick={() => {
+            if (isAuthenticated) {
+              onEnter();
+              return;
+            }
+            if (onGoogleLogin) onGoogleLogin();
+            else if (onOpenAuthModal) onOpenAuthModal();
+            else onEnter();
+          }}
           className="relative w-full py-4 bg-gradient-to-r from-pink-600 via-pink-500 to-purple-600 hover:from-pink-500 hover:to-purple-500 rounded-2xl font-bold uppercase tracking-[0.2em] text-xs text-white shadow-[0_0_25px_rgba(219,39,119,0.45)] transition-all transform active:scale-95 flex items-center justify-center gap-3 select-none cursor-pointer group"
         >
-          <span>Entrar a la Tarjeta</span>
-          <LogIn className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          {isAuthenticated ? (
+            <>
+              <span>Entrar a la Tarjeta</span>
+              <LogIn className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </>
+          ) : (
+            <>
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" className="w-4 h-4 bg-white rounded-full p-0.5" alt="" />
+              <span>Entrar con Google</span>
+            </>
+          )}
         </button>
 
-        {onGoogleLogin && (
-          <button 
-            onClick={onGoogleLogin} 
-            className="mt-4 w-full flex items-center gap-2 justify-center mx-auto text-[10px] text-white/40 uppercase tracking-widest hover:text-white/80 transition-colors"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/action/google.svg" className="w-3.5 h-3.5" alt="Google" />
-            <span>Sincronizar con Google</span>
-          </button>
+        {!isAuthenticated && (
+          <p className="mt-3 text-center text-[10px] text-white/35 uppercase tracking-widest">
+            Debes registrarte o iniciar sesión con Google para continuar
+          </p>
         )}
       </div>
     </div>

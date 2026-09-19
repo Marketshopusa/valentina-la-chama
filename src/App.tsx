@@ -33,7 +33,7 @@ import {
 import { X } from 'lucide-react';
 import { getBaseVoice, getVoiceInstruction, getVoicePitchAndRate, LISTA_VOCES, detectVoiceStyleFromText, resolveVoiceProfile, sanitizeTextForSpeech, extractDirectDialogue, VOICE_ID_TO_STYLE } from './utils/voices';
 
-import { auth, db, googleProvider, signInWithPopup, signInAnonymously, onAuthStateChanged, signOut, handleFirestoreError, OperationType } from './firebase';
+import { auth, db, googleProvider, signInWithPopup, onAuthStateChanged, signOut, handleFirestoreError, OperationType } from './firebase';
 import { doc, getDoc, setDoc, collection, query, orderBy, addDoc, serverTimestamp, writeBatch, getDocs } from 'firebase/firestore';
 
 const LEGACY_TEST_STORY_IDS = new Set(['secreto_hermanastros', 'vecina_tormenta', 'pasion_prohibida', 'llamada_madrugada', 'juegos_inocentes', 'tentacion_oficina']);
@@ -536,6 +536,34 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // One-time purge of guest / shared leftovers on this device after auth-gate hardening
+    (async () => {
+      try {
+        const PURGE_KEY = 'tpi_auth_gate_v2_purged';
+        if (localStorage.getItem(PURGE_KEY) !== '1') {
+          const keysToClear = [
+            'chat_messages',
+            'chat_messages_presentacion_valentina',
+            'chat_messages_historia_susan_test',
+            'active_scenario',
+            'active_scenario_id',
+            'scenarios_list',
+          ];
+          keysToClear.forEach((k) => localStorage.removeItem(k));
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('chat_messages_')) localStorage.removeItem(key);
+          }
+          await deleteHistory('presentacion_valentina');
+          await deleteHistory('historia_susan_test');
+          await deleteHistory();
+          localStorage.setItem(PURGE_KEY, '1');
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
+  useEffect(() => {
     const safetyTimeout = setTimeout(() => {
       setIsAppReady(true);
     }, 10000);
@@ -550,12 +578,23 @@ const App: React.FC = () => {
         ]);
       }
 
-      // If neither Firebase user nor local email is present, isolate visitor completely
-      if (!currentUser && !localSavedEmail) {
+      // Real account = Google (or other Firebase provider) with email. Anonymous /
+      // localStorage-only sessions are NOT enough to enter or chat.
+      const isRealAccount = !!(currentUser && !currentUser.isAnonymous && currentUser.email);
+
+      // Drop leftover anonymous sessions from older builds
+      if (currentUser?.isAnonymous) {
+        try { await signOut(auth); } catch (_) {}
+      }
+
+      // If no real Google account, isolate visitor completely on the cover.
+      if (!isRealAccount) {
         setUser(null);
+        setIsGuest(false);
+        setHasEntered(false);
         try {
           // STRICT VISITOR PRIVACY & ISOLATION:
-          // Non-authenticated visitors see strictly the official presentation scenario (Valentina).
+          // Non-authenticated visitors see strictly the official presentation scenario.
           // They NEVER see test scenarios (Susan) or any previous conversation history.
           const presentationScen = OFFICIAL_PRESENTATION_SCENARIO;
           setScenarios([presentationScen]);
@@ -576,28 +615,19 @@ const App: React.FC = () => {
         return;
       }
 
-      // If user has localSavedEmail but Firebase Auth is not yet signed in, connect anonymously in background
-      if (!currentUser && localSavedEmail) {
-        try {
-          await signInAnonymously(auth);
-          return;
-        } catch (anonErr) {
-          console.warn('Anonymous session init notice:', anonErr);
-        }
-      }
-
       const activeId = activeScenarioRef.current?.id;
-      const effectiveEmail = currentUser?.email || localSavedEmail || null;
+      const effectiveEmail = (currentUser.email || localSavedEmail || '').trim().toLowerCase() || null;
       const isCurrentAdmin = isAdminUser(effectiveEmail);
-      const effectiveUid = currentUser?.uid || ('user_' + (effectiveEmail || 'anon').replace(/[^a-z0-9]/gi, '_'));
+      const effectiveUid = currentUser.uid;
 
       const activeUserObj = {
         uid: effectiveUid,
         email: effectiveEmail,
-        displayName: isCurrentAdmin ? 'Administrador Master' : (localStorage.getItem('op_user_displayName') || effectiveEmail?.split('@')[0]),
+        displayName: isCurrentAdmin ? 'Administrador Master' : (currentUser.displayName || localStorage.getItem('op_user_displayName') || effectiveEmail?.split('@')[0]),
         isAdmin: isCurrentAdmin
       };
       setUser(activeUserObj);
+      setIsGuest(false);
 
       try {
         const [localImg, localP, localH, localActiveScen, localScens, localCardMedia, serverState, serverUserProfile] = await Promise.all([
@@ -634,12 +664,14 @@ const App: React.FC = () => {
         }
 
         // SCENARIOS RESOLUTION: Combine all sources preserving user custom stories, ordered newest to oldest, max 6
+        // Shared server scenarios (Susan test, etc.) are ADMIN-ONLY — regular users never inherit them.
         const cloudScens = Array.isArray(data?.scenarios) && data.scenarios.length > 0 ? data.scenarios : [];
         const localList = Array.isArray(localScens) && localScens.length > 0 ? localScens : [];
         const serverList = Array.isArray(serverState?.scenarios) && serverState.scenarios.length > 0 ? serverState.scenarios : [];
         const adminSeeds = isCurrentAdmin ? ADMIN_TEST_SCENARIOS : [];
+        const sharedServerList = isCurrentAdmin ? serverList : [];
 
-        let userScens = mergeAllScenarios(localList, [...serverList, ...adminSeeds], cloudScens);
+        let userScens = mergeAllScenarios(localList, [...sharedServerList, ...adminSeeds], cloudScens);
         if (userScens.length === 0) {
           userScens = [OFFICIAL_PRESENTATION_SCENARIO];
         }
@@ -720,25 +752,28 @@ const App: React.FC = () => {
         const scenSpecificMessages = targetCardId ? serverState?.[`chat_messages_${targetCardId}`] : null;
         const userDocCardMessages = (targetCardId && data?.[`chat_messages_${targetCardId}`]) || null;
 
-        // Choose richest available message array across all storage layers
+        // Choose richest available message array. Shared server chat is ADMIN-ONLY
+        // so a visitor/new Google account never inherits Susan test history or leftover "Hola".
         const candidateLists = [
           userDocCardMessages,
-          scenSpecificMessages,
+          isCurrentAdmin ? scenSpecificMessages : null,
           (remoteMessages.length > 0 && targetCardId === (data?.activeScenarioId || currentActive?.id)) ? remoteMessages : null,
-          specificHistory,
-          serverState?.messages
+          // Local IndexedDB history only if this user already has cloud data (not guest leftovers)
+          (userDocCardMessages || remoteMessages.length > 0) ? specificHistory : null,
+          isCurrentAdmin ? serverState?.messages : null
         ].filter(c => Array.isArray(c) && c.length > 0) as Message[][];
 
         let resolvedMsgs: Message[] = [];
         if (candidateLists.length > 0) {
           candidateLists.sort((a, b) => b.length - a.length);
           resolvedMsgs = candidateLists[0];
-        } else if (Array.isArray(specificHistory)) {
-          resolvedMsgs = specificHistory;
-        } else if (Array.isArray(userDocCardMessages)) {
+        } else if (Array.isArray(userDocCardMessages) && userDocCardMessages.length > 0) {
           resolvedMsgs = userDocCardMessages;
-        } else if (Array.isArray(scenSpecificMessages)) {
-          resolvedMsgs = scenSpecificMessages;
+        } else if (remoteMessages.length > 0) {
+          resolvedMsgs = remoteMessages;
+        } else {
+          // Fresh Google account / no personal history → clean chat
+          resolvedMsgs = [];
         }
 
         // If admin and targetCardId is Susan and no messages yet, seed with the test history!
@@ -2416,11 +2451,12 @@ ${historyContext}
         if (curId) saveCardMedia(media, curId).catch(() => {});
       }
 
-      // Messages
+      // Messages — never pull shared server chat into a normal Google account
+      const isAdm = isAdminUser(auth.currentUser?.email);
       const candidateLists = [
         curId ? userDocData?.[`chat_messages_${curId}`] : null,
-        curId ? serverState?.[`chat_messages_${curId}`] : null,
-        serverState?.messages
+        isAdm && curId ? serverState?.[`chat_messages_${curId}`] : null,
+        isAdm ? serverState?.messages : null
       ].filter(c => Array.isArray(c) && c.length > 0) as Message[][];
 
       if (candidateLists.length > 0) {
@@ -2428,6 +2464,8 @@ ${historyContext}
         const richest = candidateLists[0];
         updateMessages(richest);
         if (curId) saveHistory(richest, curId).catch(() => {});
+      } else if (!isAdm) {
+        // Keep whatever personal history is already loaded; do not import shared leftovers
       }
     } catch (e) {
       console.error('Error during force sync:', e);
@@ -2478,14 +2516,19 @@ ${historyContext}
       ) : !hasEntered ? (
         <div className="w-full h-full sm:h-[88vh] sm:max-w-[520px] relative bg-zinc-900 sm:rounded-[40px] shadow-2xl border border-white/5 overflow-hidden z-10 transition-all">
           <PromoTeaser 
+            isAuthenticated={!!(user?.email)}
             onEnter={() => {
-              setIsGuest(true);
-              setHasEntered(true);
+              // Only real Google accounts may enter — never guest/anonymous.
+              if (user?.email) {
+                setIsGuest(false);
+                setHasEntered(true);
+              } else {
+                setIsAuthModalOpen(true);
+              }
             }}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
-            onGoogleLogin={async () => {
-              await handleLogin();
-              setHasEntered(true);
+            onGoogleLogin={() => {
+              setIsAuthModalOpen(true);
             }}
             personaName={persona?.name || CATALOGO_REGIONAL[0].name}
             personaImage={customImage || persona?.defaultImage || CATALOGO_REGIONAL[0].defaultImage}
@@ -2648,14 +2691,17 @@ ${historyContext}
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={(profile) => {
           setIsAuthModalOpen(false);
-          setHasEntered(true);
-          if (profile) {
+          const real = auth.currentUser && !auth.currentUser.isAnonymous && !!auth.currentUser.email;
+          if (real && profile) {
+            setIsGuest(false);
             setUser({
               uid: profile.uid,
               email: profile.email,
               displayName: profile.displayName,
               isAdmin: profile.isAdmin
             });
+            setHasEntered(true);
+            updateMessages([]);
             handleForceSync();
           }
         }}
