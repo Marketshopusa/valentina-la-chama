@@ -1,0 +1,38 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tu-persona-ideal:latest
+    container_name: tu-persona-ideal
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      # Secrets are read from the local .env file (see .env.example). Never commit real keys.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      KREA_API_KEY: ${KREA_API_KEY:-}
+      APP_URL: ${APP_URL:-}
+      # Persistence backend: "local" (mounted volumes) or "firebase" (Firestore + Storage).
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+    volumes:
+      # Persist server-side state and uploaded media across container restarts/deploys.
+      - app_data:/app/data
+      - app_uploads:/app/public/uploads
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  app_data:
+  app_uploads:

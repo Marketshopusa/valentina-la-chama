@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { generateContentWithResilience, generateContextualCharacterReply } from "./server/geminiResilience.ts";
@@ -22,7 +21,8 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || "0.0.0.0";
 
   app.use(express.json({ limit: "70mb" }));
   app.use(express.urlencoded({ limit: "70mb", extended: true }));
@@ -1900,8 +1900,10 @@ Return ONLY the physical description as a single continuous paragraph without in
     });
   });
 
-  // Vite middleware for development
+  // Vite middleware for development. `vite` is a heavy dev-only dependency, so it
+  // is imported dynamically to keep it out of the production runtime path.
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { 
         middlewareMode: true,
@@ -1918,8 +1920,8 @@ Return ONLY the physical description as a single continuous paragraph without in
     });
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
   });
 
   process.on('SIGTERM', () => {
