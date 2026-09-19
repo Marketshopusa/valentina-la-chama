@@ -1,0 +1,23 @@
+node_modules
+dist
+build
+coverage
+.git
+.gitignore
+*.log
+.env
+.env.*
+!.env.example
+
+# Runtime-generated state and media (persist these via mounted volumes, not the image)
+data/app_state.json
+data/engine_config.json
+data/character_anchors.json
+data/users
+public/uploads
+uploads
+
+# Local tooling / editor
+.DS_Store
+.vscode
+.idea

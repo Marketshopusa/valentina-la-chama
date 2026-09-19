@@ -317,7 +317,9 @@ const App: React.FC = () => {
   const [customApiKey, setCustomApiKey] = useState<string>('');
   const [isTyping, setIsTyping] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
-  const [hasEntered, setHasEntered] = useState(true);
+  // Show the branded intro cover (PromoTeaser) on first load; entering or logging
+  // in sets this to true. Returning within a session keeps them inside the app.
+  const [hasEntered, setHasEntered] = useState(false);
 
   useEffect(() => {
     try {
@@ -1709,8 +1711,13 @@ ${historyContext}
 
       const currentVoice = LISTA_VOCES.find(v => v.id === personaRef.current.voice) || LISTA_VOCES[0];
       const targetUser = activeScen.userName || activeScen.userRole || 'willian';
+      // The character's identity is driven by the active/created scenario, never by a
+      // hard-coded default. The name takes priority over the role, and we assert it
+      // explicitly so free-text context (synopsis/development) can't override it.
+      const charName = (activeScen.characterName || activeScen.characterRole || personaRef.current.name || 'Tu Persona Ideal').trim();
+      const charRole = (activeScen.characterRole || '').trim();
       const devDirective = activeScen.development ? `Orden y contexto del personaje/voz: "${activeScen.development}".` : '';
-      const storyContext = `Escenario: "${activeScen.title}". Sinopsis: "${activeScen.synopsis}". ${devDirective} Tú eres "${activeScen.characterRole || personaRef.current.name}". El usuario que interactúa contigo es "${targetUser}". ${personaRef.current.instruction}`;
+      const storyContext = `Escenario: "${activeScen.title}". Sinopsis: "${activeScen.synopsis}". ${devDirective} Tú eres "${charName}"${charRole ? `, en el rol de "${charRole}"` : ''}. IMPORTANTE: tu nombre es EXACTAMENTE "${charName}"; nunca digas que te llamas de otra manera ni adoptes otro nombre propio aunque aparezca en textos previos. El usuario que interactúa contigo es "${targetUser}". ${personaRef.current.instruction}`;
       
       // Filter out this just-added message to prevent turn duplication in history
       const priorHistory = messagesRef.current.filter(m => m.id !== userMsg.id).slice(-15);
@@ -1719,8 +1726,8 @@ ${historyContext}
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          characterName: activeScen.characterRole || personaRef.current.name,
-          primaryCharacterName: activeScen.characterRole || personaRef.current.name,
+          characterName: charName,
+          primaryCharacterName: charName,
           userRole: targetUser,
           currentSpeaker: currentSpeakerRef.current,
           story: storyContext,

@@ -2,17 +2,17 @@ import { StoryScenario } from '../types';
 
 export const OFFICIAL_PRESENTATION_SCENARIO: StoryScenario = {
   id: 'presentacion_valentina',
-  title: 'Conoce a Valentina',
-  synopsis: 'Una charla íntima y cercana para conocer la voz, personalidad y encanto de Valentina.',
-  characterName: 'Valentina',
+  title: 'Conoce a tu persona ideal',
+  synopsis: 'Una charla íntima y cercana para dar forma a la voz, personalidad y encanto del personaje que tú elijas.',
+  characterName: 'Tu Persona Ideal',
   characterRole: 'compañera',
   userRole: 'invitado',
   userName: 'William',
   storyType: 'Presentación',
   isExplicit18: false,
-  personaId: 'ven_ccs',
+  personaId: 'persona_ideal',
   coverImage: 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500',
-  development: 'Valentina es una joven venezolana cálida, risueña y carismática.'
+  development: 'Un personaje cálido, cercano y totalmente adaptable al acento, tono, carácter y nombre que tú le indiques.'
 };
 
 export const DEFAULT_SCENARIOS: StoryScenario[] = [

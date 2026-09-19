@@ -12,7 +12,7 @@ interface PromoTeaserProps {
 const PromoTeaser: React.FC<PromoTeaserProps> = ({ 
   onEnter, 
   onGoogleLogin, 
-  personaName = 'VALENTINA', 
+  personaName = 'Tu Persona Ideal', 
   personaImage = 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500' 
 }) => {
   return (
@@ -40,10 +40,10 @@ const PromoTeaser: React.FC<PromoTeaserProps> = ({
 
       <div className="relative z-10 flex flex-col items-center text-center mt-auto mb-6">
         <h1 className="font-serif text-5xl italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-pink-500 to-purple-600 drop-shadow-[0_0_15px_rgba(236,72,153,0.3)] select-none">
-          {personaName}
+          Tu Persona Ideal
         </h1>
-        <p className="text-pink-500 text-[10px] uppercase font-black tracking-[0.3em] mt-1 drop-shadow-[0_0_6px_rgba(236,72,153,0.5)]">
-          Tu Compañera Virtual
+        <p className="text-pink-500 text-[11px] uppercase font-black tracking-[0.28em] mt-2 drop-shadow-[0_0_6px_rgba(236,72,153,0.5)]">
+          Crea tu historia, tu aventura y tu persona ideal
         </p>
 
         <p className="text-zinc-300 text-sm mt-4 max-w-[280px] leading-relaxed drop-shadow-sm font-medium">

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { generateContentWithResilience } from './geminiResilience.ts';
+import { getStorage } from './storage/index.ts';
 
 export interface CharacterAnchorData {
   characterId: string;
@@ -71,14 +72,6 @@ export interface CoherenceResultData {
   adjustedWeightsApplied?: Record<string, number>;
 }
 
-const dataDir = path.join(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const anchorsFilePath = path.join(dataDir, 'character_anchors.json');
-const configFilePath = path.join(dataDir, 'engine_config.json');
-
 // --- Helper: Default Engine Config ---
 export function getDefaultEngineConfig(): EngineConfigData {
   return {
@@ -96,53 +89,30 @@ export function getDefaultEngineConfig(): EngineConfigData {
   };
 }
 
-export function loadEngineConfig(): EngineConfigData {
-  try {
-    if (fs.existsSync(configFilePath)) {
-      const raw = fs.readFileSync(configFilePath, 'utf-8');
-      return { ...getDefaultEngineConfig(), ...JSON.parse(raw) };
-    }
-  } catch (e) {
-    console.warn("Could not read engine_config.json, returning defaults:", e);
-  }
-  return getDefaultEngineConfig();
+export async function loadEngineConfig(): Promise<EngineConfigData> {
+  const stored = await getStorage().readEngineConfig();
+  return { ...getDefaultEngineConfig(), ...(stored || {}) } as EngineConfigData;
 }
 
-export function saveEngineConfig(config: Partial<EngineConfigData>): EngineConfigData {
-  const current = loadEngineConfig();
+export async function saveEngineConfig(config: Partial<EngineConfigData>): Promise<EngineConfigData> {
+  const current = await loadEngineConfig();
   const updated = { ...current, ...config };
-  try {
-    fs.writeFileSync(configFilePath, JSON.stringify(updated, null, 2), 'utf-8');
-  } catch (e) {
-    console.error("Failed saving engine_config.json:", e);
-  }
+  await getStorage().writeEngineConfig(updated);
   return updated;
 }
 
 // --- Helper: Persistent Character Anchors ---
-export function loadAllCharacterAnchors(): Record<string, CharacterAnchorData> {
-  try {
-    if (fs.existsSync(anchorsFilePath)) {
-      const raw = fs.readFileSync(anchorsFilePath, 'utf-8');
-      return JSON.parse(raw);
-    }
-  } catch (e) {
-    console.warn("Could not read character_anchors.json:", e);
-  }
-  return {};
+export async function loadAllCharacterAnchors(): Promise<Record<string, CharacterAnchorData>> {
+  return (await getStorage().readCharacterAnchors()) as Record<string, CharacterAnchorData>;
 }
 
-export function saveCharacterAnchor(anchor: CharacterAnchorData): void {
-  const all = loadAllCharacterAnchors();
+export async function saveCharacterAnchor(anchor: CharacterAnchorData): Promise<void> {
+  const all = await loadAllCharacterAnchors();
   all[anchor.characterName.toLowerCase()] = anchor;
   if (anchor.characterId) {
     all[anchor.characterId] = anchor;
   }
-  try {
-    fs.writeFileSync(anchorsFilePath, JSON.stringify(all, null, 2), 'utf-8');
-  } catch (e) {
-    console.error("Failed saving character_anchors.json:", e);
-  }
+  await getStorage().writeCharacterAnchors(all);
 }
 
 // Generate deterministic synthetic 128-dimensional embedding vector from descriptive seed text
@@ -175,7 +145,7 @@ export async function getOrAnchorCharacter(
   forceReanchor: boolean = false
 ): Promise<CharacterAnchorData> {
   const cleanName = (characterName || "Gabriela").trim();
-  const allAnchors = loadAllCharacterAnchors();
+  const allAnchors = await loadAllCharacterAnchors();
   const key = (characterId || cleanName).toLowerCase();
 
   if (!forceReanchor && allAnchors[key]) {
@@ -286,7 +256,7 @@ Return ONLY valid JSON in this exact structure:
     updatedAt: Date.now()
   };
 
-  saveCharacterAnchor(anchorRecord);
+  await saveCharacterAnchor(anchorRecord);
   console.log(`[Character Anchoring] Successfully anchored ${cleanName} with identity token ${identityToken}`);
   return anchorRecord;
 }
