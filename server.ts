@@ -21,10 +21,18 @@ import { initStorage, getStorage } from "./server/storage/index.ts";
 
 dotenv.config();
 
-async function startServer() {
+export type CreateAppOptions = {
+  /** When false (Vercel serverless), only mount /api routes — no SPA/static. */
+  serveSpa?: boolean;
+};
+
+/**
+ * Build the Express app. Used by the long-lived Node server AND by the Vercel
+ * serverless entry (`api/index.js`) so `/api/*` works on valentina-la-chama.vercel.app.
+ */
+export async function createApp(options: CreateAppOptions = {}) {
+  const serveSpa = options.serveSpa !== false;
   const app = express();
-  const PORT = config.port;
-  const HOST = config.host;
 
   // Initialize the configured persistence backend (local files or Firebase).
   await initStorage();
@@ -1830,24 +1838,27 @@ Return ONLY the physical description as a single continuous paragraph without in
     res.status(404).json({ error: `Unknown API endpoint: ${req.method} ${req.originalUrl}` });
   });
 
-  // Vite middleware for development. `vite` is a heavy dev-only dependency, so it
-  // is imported dynamically to keep it out of the production runtime path.
-  if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { 
-        middlewareMode: true,
-        hmr: false,
-      },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  // SPA / static assets: only for the long-lived Node server. On Vercel the
+  // static client is served from `dist/` by the platform; this function only
+  // handles `/api/*`.
+  if (serveSpa) {
+    if (process.env.NODE_ENV !== "production") {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: {
+          middlewareMode: true,
+          hmr: false,
+        },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
   // Centralized error handler: any error thrown/forwarded by a route lands here
@@ -1857,6 +1868,14 @@ Return ONLY the physical description as a single continuous paragraph without in
     if (res.headersSent) return;
     res.status(500).json({ error: err?.message || "Internal server error" });
   });
+
+  return app;
+}
+
+async function startServer() {
+  const PORT = config.port;
+  const HOST = config.host;
+  const app = await createApp({ serveSpa: true });
 
   const server = app.listen(PORT, HOST, () => {
     console.log(`Server running on http://${HOST}:${PORT}`);
@@ -1872,4 +1891,11 @@ Return ONLY the physical description as a single continuous paragraph without in
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-startServer();
+// On Vercel the serverless entry (`api/index.js`) imports `createApp` and must
+// not bind a port. Locally / in Docker we start the long-lived server.
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  });
+}

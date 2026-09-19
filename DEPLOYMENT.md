@@ -115,9 +115,14 @@ volumes at `/app/data` and `/app/public/uploads` when using `STORAGE_PROVIDER=lo
 - `local` storage works directly on the VPS disk.
 
 ### Vercel
-- Not a natural fit: this is a long-lived Express server, and Vercel's serverless
-  filesystem is ephemeral. To use it you must run the API as serverless functions
-  **and** set `STORAGE_PROVIDER=firebase`. Prefer one of the options above.
+- The repo includes `vercel.json` + `api/index.cjs` so `/api/*` runs as a
+  serverless Express function (same routes as Docker). Set **`GEMINI_API_KEY`**
+  in the Vercel project Environment Variables (Production + Preview).
+- Also authorize your Vercel domain in Firebase Console → Authentication →
+  Authorized domains (`valentina-la-chama.vercel.app`).
+- For durable server-side state on Vercel prefer `STORAGE_PROVIDER=firebase`
+  with a service account; the default `local` provider works for reads of the
+  committed seed state but writes are ephemeral on serverless.
 
 ## 7. Health check
 
