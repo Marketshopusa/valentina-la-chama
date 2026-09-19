@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { generateContentWithResilience, generateContextualCharacterReply } from "./server/geminiResilience.ts";
@@ -17,12 +16,18 @@ import {
   saveCharacterAnchor,
   getDefaultEngineConfig
 } from "./server/inStoryEngine.ts";
+import { config } from "./server/config.ts";
+import { initStorage, getStorage } from "./server/storage/index.ts";
 
 dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = config.port;
+  const HOST = config.host;
+
+  // Initialize the configured persistence backend (local files or Firebase).
+  await initStorage();
 
   app.use(express.json({ limit: "70mb" }));
   app.use(express.urlencoded({ limit: "70mb", extended: true }));
@@ -32,66 +37,25 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // Serve static public/uploads folder for persistent character cards & photos
-  const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-  const rootUploadsDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(rootUploadsDir)) {
-    fs.mkdirSync(rootUploadsDir, { recursive: true });
-  }
+  // Serve static uploads (persistent character cards & photos). Storage init
+  // has already ensured these directories exist.
+  const uploadsDir = config.paths.uploadsDir;
+  const rootUploadsDir = config.paths.rootUploadsDir;
   app.use('/uploads', express.static(uploadsDir));
   app.use('/uploads', express.static(rootUploadsDir));
 
-  // Server-side persistent storage for application state across devices
-  const dataDir = path.join(process.cwd(), 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  const appStateFile = path.join(dataDir, 'app_state.json');
-
-  function persistBase64MediaToFile(val: any, prefix = 'media'): any {
-    if (typeof val !== 'string' || !val.startsWith('data:')) return val;
-    try {
-      const matches = val.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      if (!matches || matches.length !== 3) return val;
-      const mimeType = matches[1];
-      const base64Data = matches[2];
-      const buffer = Buffer.from(base64Data, 'base64');
-      let ext = 'jpg';
-      if (mimeType.includes('png')) ext = 'png';
-      else if (mimeType.includes('gif')) ext = 'gif';
-      else if (mimeType.includes('webp')) ext = 'webp';
-      else if (mimeType.includes('mp4')) ext = 'mp4';
-      else if (mimeType.includes('webm')) ext = 'webm';
-
-      const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
-      const outName = `${safePrefix}_${Date.now()}.${ext}`;
-      const filePath = path.join(uploadsDir, outName);
-      fs.writeFileSync(filePath, buffer);
-      // Also copy to rootUploadsDir for redundancy
-      try {
-        fs.writeFileSync(path.join(rootUploadsDir, outName), buffer);
-      } catch (copyErr) {}
-      return `/uploads/${outName}`;
-    } catch (e) {
-      console.warn("Error persisting base64 to file:", e);
-      return val;
-    }
-  }
-
-  function sanitizeStateMedia(obj: any, keyName = 'state'): any {
+  // Recursively persist any base64 data: URLs in an object to hosted media URLs.
+  async function sanitizeStateMedia(obj: any, keyName = 'state'): Promise<any> {
     if (!obj || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) {
-      return obj.map((item, idx) => sanitizeStateMedia(item, `${keyName}_${idx}`));
+      return Promise.all(obj.map((item, idx) => sanitizeStateMedia(item, `${keyName}_${idx}`)));
     }
     const clean: Record<string, any> = {};
     for (const [k, v] of Object.entries(obj)) {
       if (typeof v === 'string' && v.startsWith('data:')) {
-        clean[k] = persistBase64MediaToFile(v, k);
+        clean[k] = await getStorage().saveMedia(v, k);
       } else if (v && typeof v === 'object') {
-        clean[k] = sanitizeStateMedia(v, k);
+        clean[k] = await sanitizeStateMedia(v, k);
       } else {
         clean[k] = v;
       }
@@ -99,11 +63,10 @@ async function startServer() {
     return clean;
   }
 
-  function getStoredAppState() {
+  async function getStoredAppState() {
     try {
-      if (fs.existsSync(appStateFile)) {
-        const raw = fs.readFileSync(appStateFile, 'utf-8');
-        const state = JSON.parse(raw);
+      {
+        const state = await getStorage().readAppState();
         if (state && typeof state === 'object') {
           // Ensure clean scenarios array
           let scens = Array.isArray(state.scenarios) ? [...state.scenarios] : [];
@@ -140,10 +103,10 @@ async function startServer() {
     return null;
   }
 
-  function saveStoredAppState(state: any) {
+  async function saveStoredAppState(state: any) {
     try {
-      const sanitized = sanitizeStateMedia(state);
-      const current = getStoredAppState() || {};
+      const sanitized = await sanitizeStateMedia(state);
+      const current = (await getStoredAppState()) || {};
 
       const DEFAULT_IDS = new Set(['presentacion_valentina']);
 
@@ -242,7 +205,7 @@ async function startServer() {
         updatedAt: Date.now() 
       };
 
-      fs.writeFileSync(appStateFile, JSON.stringify(merged, null, 2), 'utf-8');
+      await getStorage().writeAppState(merged);
       return merged;
     } catch (e) {
       console.error("Failed saving app_state.json:", e);
@@ -595,7 +558,7 @@ ${expressiveScript}`;
     let story = "";
     let modoAdulto = false;
     let isNarrativeActive = true;
-    let activeSpeakerForTurn = "Gabriela";
+    let activeSpeakerForTurn = "Tu Persona Ideal";
 
     try {
       const body = req.body || {};
@@ -975,7 +938,7 @@ Mensaje o situación descrita por el usuario (${targetUser}):
       console.warn("[AI Chat Endpoint] Transient service demand/quota event intercepted:", err?.message || err);
       // Generate an intelligent, in-character fallback response so the user's roleplay continues seamlessly
       const fallbackReply = generateContextualCharacterReply({
-        characterName: activeSpeakerForTurn || characterName || 'Gabriela',
+        characterName: activeSpeakerForTurn || characterName || 'Tu Persona Ideal',
         userMessage: userMessage || '',
         storyContext: story || '',
         isAdultMode: Boolean(modoAdulto),
@@ -984,7 +947,7 @@ Mensaje o situación descrita por el usuario (${targetUser}):
 
       res.json({ 
         text: fallbackReply,
-        activeSpeaker: activeSpeakerForTurn || characterName || 'Gabriela',
+        activeSpeaker: activeSpeakerForTurn || characterName || 'Tu Persona Ideal',
         isFallback: true
       });
     }
@@ -1462,19 +1425,19 @@ Return ONLY the physical description as a single continuous paragraph without in
   // =========================================================================
 
   // Obtener la configuración actual del motor de imágenes
-  app.get("/api/engine-config", (req, res) => {
+  app.get("/api/engine-config", async (req, res) => {
     try {
-      const config = loadEngineConfig();
-      res.json(config);
+      const engineConfig = await loadEngineConfig();
+      res.json(engineConfig);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "Error al cargar configuración" });
     }
   });
 
   // Guardar configuración del motor de imágenes (Modo +18, Endpoints privados, Pesos LoRA, Coherencia)
-  app.post("/api/engine-config", (req, res) => {
+  app.post("/api/engine-config", async (req, res) => {
     try {
-      const updated = saveEngineConfig(req.body);
+      const updated = await saveEngineConfig(req.body);
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "Error al guardar configuración" });
@@ -1529,7 +1492,7 @@ Return ONLY the physical description as a single continuous paragraph without in
   app.get("/api/character-anchor/:name", async (req, res) => {
     try {
       const name = req.params.name;
-      const all = loadAllCharacterAnchors();
+      const all = await loadAllCharacterAnchors();
       const anchor = all[name.toLowerCase()] || all[name];
       if (anchor) {
         return res.json(anchor);
@@ -1588,7 +1551,7 @@ Return ONLY the physical description as a single continuous paragraph without in
       }
 
       const ai = getAi();
-      const engineConfig = { ...loadEngineConfig(), ...(customConfig || {}) };
+      const engineConfig = { ...(await loadEngineConfig()), ...(customConfig || {}) };
 
       // Resuelve el nombre del protagonista masculino
       let resolvedManName = userName || (userRole && userRole.toLowerCase() !== "hombre" && userRole.toLowerCase() !== "usuario" ? userRole : "");
@@ -1759,46 +1722,30 @@ Return ONLY the physical description as a single continuous paragraph without in
   });
 
   // Get current cross-device app state
-  app.get("/api/app-state", (req, res) => {
-    const state = getStoredAppState();
+  app.get("/api/app-state", async (req, res) => {
+    const state = await getStoredAppState();
     res.json(state || {});
   });
 
   // Save cross-device app state (active story, scenarios, photo, messages)
-  app.post("/api/app-state", (req, res) => {
+  app.post("/api/app-state", async (req, res) => {
     const updates = req.body;
     if (!updates || typeof updates !== 'object') {
       return res.status(400).json({ error: "Invalid state updates." });
     }
-    const saved = saveStoredAppState(updates);
+    const saved = await saveStoredAppState(updates);
     res.json({ success: true, state: saved });
   });
 
-  // User profiles directory for cross-device isolated persistence by email
-  const userProfilesDir = path.join(dataDir, 'users');
-  if (!fs.existsSync(userProfilesDir)) {
-    fs.mkdirSync(userProfilesDir, { recursive: true });
-  }
-
-  function getSafeUserFilePath(email: string): string {
-    const safeEmail = email.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '_');
-    return path.join(userProfilesDir, `user_${safeEmail}.json`);
-  }
-
   // Get user profile by email (cross-device: PC & mobile)
-  app.get("/api/user-profile", (req, res) => {
+  app.get("/api/user-profile", async (req, res) => {
     try {
       const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
       if (!email) {
         return res.status(400).json({ error: "Email is required." });
       }
-      const filePath = getSafeUserFilePath(email);
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        const userData = JSON.parse(raw);
-        return res.json({ success: true, user: userData });
-      }
-      return res.json({ success: true, user: null });
+      const userData = await getStorage().readUserProfile(email);
+      return res.json({ success: true, user: userData });
     } catch (e: any) {
       console.error("Error reading user profile:", e);
       res.status(500).json({ error: "Failed to read user profile" });
@@ -1806,20 +1753,14 @@ Return ONLY the physical description as a single continuous paragraph without in
   });
 
   // Save user profile by email (cross-device: PC & mobile)
-  app.post("/api/user-profile", (req, res) => {
+  app.post("/api/user-profile", async (req, res) => {
     try {
       const { email, displayName, scenarios, activeScenarioId, activeScenario, cardMedia, messages, customImage } = req.body;
       if (!email || typeof email !== 'string') {
         return res.status(400).json({ error: "Valid email is required." });
       }
       const cleanEmail = email.trim().toLowerCase();
-      const filePath = getSafeUserFilePath(cleanEmail);
-      let existing: any = {};
-      if (fs.existsSync(filePath)) {
-        try {
-          existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        } catch (readErr) {}
-      }
+      const existing: any = (await getStorage().readUserProfile(cleanEmail)) || {};
 
       const isAdmin = cleanEmail === 'marketshopusafl@gmail.com';
       const updatedUser = {
@@ -1837,7 +1778,7 @@ Return ONLY the physical description as a single continuous paragraph without in
         updatedAt: Date.now()
       };
 
-      fs.writeFileSync(filePath, JSON.stringify(updatedUser, null, 2), 'utf-8');
+      await getStorage().writeUserProfile(cleanEmail, updatedUser);
       res.json({ success: true, user: updatedUser });
     } catch (e: any) {
       console.error("Error saving user profile:", e);
@@ -1846,7 +1787,7 @@ Return ONLY the physical description as a single continuous paragraph without in
   });
 
   // Upload or convert base64 image/video to permanent static URL
-  app.post("/api/upload-media", (req, res) => {
+  app.post("/api/upload-media", async (req, res) => {
     try {
       const { media, scenarioId } = req.body;
       if (!media || typeof media !== 'string') {
@@ -1858,28 +1799,12 @@ Return ONLY the physical description as a single continuous paragraph without in
         return res.json({ url: media });
       }
 
-      const matches = media.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      if (!matches || matches.length !== 3) {
+      if (!/^data:([A-Za-z-+\/]+);base64,(.+)$/.test(media)) {
         return res.status(400).json({ error: "Invalid data URL format." });
       }
 
-      const mimeType = matches[1];
-      const base64Data = matches[2];
-      const buffer = Buffer.from(base64Data, 'base64');
-      
-      let ext = 'jpg';
-      if (mimeType.includes('png')) ext = 'png';
-      else if (mimeType.includes('gif')) ext = 'gif';
-      else if (mimeType.includes('webp')) ext = 'webp';
-      else if (mimeType.includes('mp4')) ext = 'mp4';
-      else if (mimeType.includes('webm')) ext = 'webm';
-
-      const safeId = scenarioId ? scenarioId.replace(/[^a-zA-Z0-9_-]/g, '') : `media_${Date.now()}`;
-      const outName = `${safeId}_${Date.now()}.${ext}`;
-      const filePath = path.join(uploadsDir, outName);
-      
-      fs.writeFileSync(filePath, buffer);
-      const publicUrl = `/uploads/${outName}`;
+      const prefix = scenarioId ? scenarioId.replace(/[^a-zA-Z0-9_-]/g, '') : `media_${Date.now()}`;
+      const publicUrl = await getStorage().saveMedia(media, prefix);
       return res.json({ url: publicUrl });
     } catch (err) {
       console.error("Error in /api/upload-media:", err);
@@ -1900,8 +1825,15 @@ Return ONLY the physical description as a single continuous paragraph without in
     });
   });
 
-  // Vite middleware for development
+  // Unknown API routes should return JSON 404 instead of falling through to the SPA.
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: `Unknown API endpoint: ${req.method} ${req.originalUrl}` });
+  });
+
+  // Vite middleware for development. `vite` is a heavy dev-only dependency, so it
+  // is imported dynamically to keep it out of the production runtime path.
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { 
         middlewareMode: true,
@@ -1918,16 +1850,26 @@ Return ONLY the physical description as a single continuous paragraph without in
     });
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  // Centralized error handler: any error thrown/forwarded by a route lands here
+  // as a JSON response instead of a hanging request or HTML error page.
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("Unhandled server error:", err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: err?.message || "Internal server error" });
   });
 
-  process.on('SIGTERM', () => {
-    server.close();
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
   });
-  process.on('SIGINT', () => {
-    server.close();
-  });
+
+  const shutdown = (signal: string) => {
+    console.log(`${signal} received, shutting down gracefully...`);
+    server.close(() => process.exit(0));
+    // Force-exit if connections don't drain in time.
+    setTimeout(() => process.exit(0), 10000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 startServer();
