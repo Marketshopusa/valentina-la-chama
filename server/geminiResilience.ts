@@ -141,15 +141,15 @@ export function generateContextualCharacterReply(opts: {
 }): string {
   const { characterName, userMessage, isAdultMode, isNarrativeActive } = opts;
   const msgLower = (userMessage || "").toLowerCase();
-  const name = characterName || "Susan";
+  const name = characterName || "";
 
-  // Check accent/flavor from context
-  const isVenezuelan = (opts.storyContext || "").toLowerCase().includes("caracas") || 
-                       (opts.storyContext || "").toLowerCase().includes("ven_") ||
-                       (opts.storyContext || "").toLowerCase().includes("chamo") ||
-                       name.toLowerCase().includes("susan") || 
-                       name.toLowerCase().includes("valentina") || 
-                       name.toLowerCase().includes("samantha");
+  // Accent/flavor is inferred ONLY from explicit story context, never from the
+  // character's name, so the engine stays agnostic to any specific character.
+  const ctxLower = (opts.storyContext || "").toLowerCase();
+  const isVenezuelan = ctxLower.includes("caracas") ||
+                       ctxLower.includes("venezol") ||
+                       ctxLower.includes("ven_") ||
+                       ctxLower.includes("chamo");
 
   let actionNarrative = `*Te mira a los ojos con complicidad y una media sonrisa pícara, mordiéndose el labio.*`;
   let dialogue = `Mmm... no me hagas esperar más. Dime qué más estás pensando, que me tienes con la intriga.`;

@@ -558,7 +558,7 @@ ${expressiveScript}`;
     let story = "";
     let modoAdulto = false;
     let isNarrativeActive = true;
-    let activeSpeakerForTurn = "Gabriela";
+    let activeSpeakerForTurn = "Tu Persona Ideal";
 
     try {
       const body = req.body || {};
@@ -938,7 +938,7 @@ Mensaje o situación descrita por el usuario (${targetUser}):
       console.warn("[AI Chat Endpoint] Transient service demand/quota event intercepted:", err?.message || err);
       // Generate an intelligent, in-character fallback response so the user's roleplay continues seamlessly
       const fallbackReply = generateContextualCharacterReply({
-        characterName: activeSpeakerForTurn || characterName || 'Gabriela',
+        characterName: activeSpeakerForTurn || characterName || 'Tu Persona Ideal',
         userMessage: userMessage || '',
         storyContext: story || '',
         isAdultMode: Boolean(modoAdulto),
@@ -947,7 +947,7 @@ Mensaje o situación descrita por el usuario (${targetUser}):
 
       res.json({ 
         text: fallbackReply,
-        activeSpeaker: activeSpeakerForTurn || characterName || 'Gabriela',
+        activeSpeaker: activeSpeakerForTurn || characterName || 'Tu Persona Ideal',
         isFallback: true
       });
     }
