@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Runtime-generated server state and media (persist via volumes / Firebase, not git)
+/data/engine_config.json
+/data/character_anchors.json
+/data/users/
+/public/uploads/
+/uploads/
