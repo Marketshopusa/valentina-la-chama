@@ -1,16 +1,13 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": null,
-  "functions": {
-    "api/index.cjs": {
-      "maxDuration": 60,
-      "includeFiles": "{dist/server.cjs,data/**}"
-    }
-  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/uploads/(.*)", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ]
+    { "source": "/uploads/(.*)", "destination": "/api" }
+  ],
+  "functions": {
+    "api/index.cjs": {
+      "includeFiles": "dist/server.cjs"
+    }
+  }
 }

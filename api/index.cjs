@@ -1,7 +1,6 @@
 /**
- * Vercel serverless entry for all `/api/*` routes.
- * Reuses the same Express app as the Docker/Node server so Gemini chat, TTS,
- * and state endpoints work when the frontend is hosted on Vercel.
+ * Vercel serverless entry for `/api/*` (CommonJS — package.json has "type":"module").
+ * Loads the Express app exported from the esbuild bundle (dist/server.cjs).
  */
 const path = require("path");
 
@@ -9,12 +8,11 @@ let appPromise = null;
 
 function loadApp() {
   if (!appPromise) {
-    // dist/server.cjs is produced by `npm run build` (esbuild of server.ts).
-    // Vercel sets VERCEL=1 so the bundle does not call listen().
-    const serverModule = require(path.join(__dirname, "..", "dist", "server.cjs"));
-    const createApp = serverModule.createApp || serverModule.exports?.createApp;
+    const serverPath = path.join(__dirname, "..", "dist", "server.cjs");
+    const serverModule = require(serverPath);
+    const createApp = serverModule.createApp;
     if (typeof createApp !== "function") {
-      throw new Error("createApp export missing from dist/server.cjs — run npm run build");
+      throw new Error("createApp export missing from dist/server.cjs");
     }
     appPromise = createApp({ serveSpa: false });
   }
@@ -22,6 +20,13 @@ function loadApp() {
 }
 
 module.exports = async function handler(req, res) {
-  const app = await loadApp();
-  return app(req, res);
+  try {
+    const app = await loadApp();
+    return app(req, res);
+  } catch (err) {
+    console.error("API bootstrap error:", err);
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: err?.message || "API failed to start" }));
+  }
 };
