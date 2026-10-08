@@ -30,8 +30,19 @@ import {
 import { cn } from '../lib/utils';
 import { getAIResponse, VoiceProfile } from '../services/aiService';
 
-// The 5 specified high-accuracy Neural Latin Female voice profiles
+// The specified high-accuracy Neural Latin Female voice profiles
 const NEURAL_LATIN_VOICES: (VoiceProfile & { category: string; audioSpec: string })[] = [
+  {
+    id: 'Scarlett_HD',
+    name: 'Scarlett HD (Femenina, suave y apasionada)',
+    category: 'MIS VOCES',
+    description: 'Voz femenina sumamente suave, envolvente, cálida y apasionada.',
+    mannerism: 'Habla con la voz de Scarlett HD, sumamente suave, seductora, cálida y apasionada. Habla con cercanía íntima, susurros sutiles y respiración cercana.',
+    langCode: 'es-US',
+    pitch: 1.08,
+    rate: 0.94,
+    audioSpec: 'es-Scarlett-HD'
+  },
   {
     id: 'voice_colombiana',
     name: 'Neural Colombiana (Estándar)',
@@ -120,7 +131,7 @@ Especialidad: Psicóloga Clínica, Terapeuta de Orientación Integrativa y Salud
   });
 
   const [selectedVoiceId, setSelectedVoiceId] = React.useState(() => {
-    return localStorage.getItem('op_card_voice_id') || 'voice_paisa'; // Defaults to Medellín accent
+    return localStorage.getItem('op_card_voice_id') || 'Scarlett_HD'; // Defaults to Scarlett HD
   });
 
   const [elevenLabsAgentId, setElevenLabsAgentId] = React.useState(() => {
@@ -1572,9 +1583,9 @@ Especialidad: Psicóloga Clínica, Terapeuta de Orientación Integrativa y Salud
                 </span>
               </div>
 
-              {chatHistory.map((msg) => (
+              {chatHistory.map((msg, idx) => (
                 <motion.div
-                  key={msg.id}
+                  key={msg.id ? `${msg.id}-${idx}` : `live-msg-${idx}`}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   className={cn(

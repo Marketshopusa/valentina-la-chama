@@ -139,9 +139,9 @@ export default function ChatInterface({ character }: ChatInterfaceProps) {
         )}
         
         <AnimatePresence initial={false}>
-          {messages.map((msg) => (
+          {messages.map((msg, idx) => (
             <motion.div
-              key={msg.id}
+              key={msg.id ? `${msg.id}-${idx}` : `chat-msg-${idx}`}
               initial={{ opacity: 0, x: msg.sender === 'user' ? 20 : -20 }}
               animate={{ opacity: 1, x: 0 }}
               className={cn(

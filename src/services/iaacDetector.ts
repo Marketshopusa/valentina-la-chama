@@ -190,6 +190,33 @@ export const IAAC_LAUNCH_EVENTS: Record<string, IAACEventDefinition> = {
     }
   },
 
+  // 6b. Gemidos, Suspiros de Placer y Jadeos Íntimos
+  gemidos_suspiros: {
+    eventType: 'gemidos_suspiros',
+    name: 'Gemido o Suspiro de Placer',
+    technicalDescription: 'Vocalización íntima de gemido sensual, jadeo de éxtasis o suspiro apasionado.',
+    defaultIntensity: 8,
+    patterns: [
+      /\bgim(e|o|es|en|ió|io|iendo|ir|idos|ido|idito|iditos)\b/i,
+      /solt(ó|o)\s+un\s+gemido/i,
+      /escap(ó|o)\s+un\s+gemido/i,
+      /un\s+gemido\s+(suave|ahogado|agudo|profundo|entrecortado|ronco|involuntario)/i,
+      /\b(mmm+|ahhh+|ohhh+|uhmm+|ah\.\.\.|oh\.\.\.|mmm\.\.\.|uff\.\.\.)\b/i,
+      /suspir(ar|ó|o|ando|os|o|aba)\s+(hondo|profundo|de\s+placer|entrecortado|suave)/i,
+      /\bjade(o|a|as|an|ando|ar|ó|o)\b/i,
+      /jadeo\s+(de\s+placer|sensual|íntimo|caliente)/i,
+      /moan(ing|ed|s)?/i,
+      /gasp(ing|ed|s)?/i,
+      /whimper(ing|ed|s)?/i,
+      /\*.*?(gim|jade|suspir|moan).*?\*/i,
+      /\[.*?(gim|jade|suspir|moan).*?\]/i,
+    ],
+    intensityModifiers: {
+      high: [/fuerte/i, /profundo/i, /desesperado/i, /descontrolado/i, /intenso/i, /agudo/i],
+      low: [/suave(mente)?/i, /ahogado/i, /apenas\s+audible/i, /tímido/i, /leve/i]
+    }
+  },
+
   // 7. Succión y Chupar (boca, paleta, interacción húmeda)
   intimate_mouth_interaction: {
     eventType: 'intimate_mouth_interaction',

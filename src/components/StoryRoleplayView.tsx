@@ -1,18 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { 
   ArrowLeft, RotateCcw, Volume2, VolumeX, Phone, PhoneOff, Mic, MicOff, 
   Send, Sparkles, Image as ImageIcon, Loader2, Maximize2, Scan, Settings, 
   User, Check, X, RefreshCw, Plus, Edit3, Cpu, ShieldCheck, Layers, Cloud,
-  BookOpen, MessageSquareQuote, MessageSquare, Lock, Shield
+  BookOpen, MessageSquareQuote, MessageSquare, Lock, Shield,
+  Play, Pause, Film, ChevronLeft, ChevronRight, Video, Trash2, MoreVertical
 } from 'lucide-react';
 import { Persona, ConnectionStatus, Message, StoryScenario, CharacterAnchor, DecodedPromptSlots, CoherenceAnalysis } from '../types';
 import { EditStoryModal } from './EditStoryModal';
 import { ImageEngineModal } from './ImageEngineModal';
 import { CoherenceInspectorModal } from './CoherenceInspectorModal';
 import { CardVoicePickerModal } from './CardVoicePickerModal';
-import { resolveVoiceProfile, sanitizeTextForSpeech } from '../utils/voices';
-import { playVoice, stopAllSpeech } from '../utils/speechPlayer';
+import { resolveVoiceProfile, sanitizeTextForSpeech, splitTextForMultiVoice } from '../utils/voices';
+import { playVoice, playMultiVoice, stopAllSpeech, unlockAudioContext } from '../utils/speechPlayer';
 import { isAdminUser } from '../data/adminInitialData';
+import { iaacService } from '../services/iaacService';
+import { isVideoUrl } from '../utils/mediaUtils';
 
 interface StoryRoleplayViewProps {
   scenario: StoryScenario;
@@ -85,6 +88,38 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
   const [callDuration, setCallDuration] = useState(0);
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [activeIaacBadge, setActiveIaacBadge] = useState<{ name: string; icon: string } | null>(null);
+
+  // Subscribe to real-time IAAC audio events to show visual badge
+  useEffect(() => {
+    let timer: any = null;
+    const unsub = iaacService.subscribe((event) => {
+      let icon = '🔊';
+      let label = event.name || 'Efecto Físico';
+      if (event.eventType.includes('gemido') || event.eventType.includes('suspiro')) {
+        icon = '💋';
+        label = 'Gemido Sensual';
+      } else if (event.eventType.includes('slap') || event.eventType.includes('spank')) {
+        icon = '👋';
+        label = 'Nalgada / Contacto';
+      } else if (event.eventType.includes('mouth') || event.eventType.includes('kiss')) {
+        icon = '👅';
+        label = 'Beso y Succión';
+      } else if (event.eventType.includes('breath') || event.eventType.includes('panting')) {
+        icon = '💨';
+        label = 'Jadeo Agitado';
+      }
+      setActiveIaacBadge({ name: label, icon });
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        setActiveIaacBadge(null);
+      }, 2500);
+    });
+    return () => {
+      unsub();
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   // Stop speech when unmounting
   useEffect(() => {
@@ -98,6 +133,7 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
       if (onOpenAuthModal) onOpenAuthModal();
       return;
     }
+    unlockAudioContext();
     if (playingMessageId === m.id) {
       stopAllSpeech();
       setPlayingMessageId(null);
@@ -106,24 +142,24 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
     stopAllSpeech();
     setPlayingMessageId(m.id);
 
-    const cleanedText = sanitizeTextForSpeech(m.text, isNarrativeActive);
-    if (!cleanedText) {
+    const segments = splitTextForMultiVoice(
+      m.text,
+      !!isNarrativeActive,
+      scenario.characterName || persona.name,
+      scenario.characterName || persona.name,
+      {
+        characterVoiceId: scenario.voiceStyle || persona.voice || 'Scarlett_HD',
+        narratorVoiceId: scenario.narratorVoiceId || 'Narradora_Intensa',
+        guestVoiceId: scenario.guestVoiceId || 'Invitada_Coqueta'
+      }
+    );
+
+    if (segments.length === 0) {
       setPlayingMessageId(null);
       return;
     }
 
-    const currentVoice = resolveVoiceProfile(
-      scenario.voiceStyle || persona.voice,
-      scenario.development || scenario.synopsis,
-      scenario.characterName || persona.name
-    );
-
-    await playVoice({
-      text: cleanedText,
-      voiceId: currentVoice.id,
-      characterName: scenario.characterName || persona.name,
-      voiceDirective: currentVoice.voiceInstruction,
-      baseVoice: currentVoice.baseVoice,
+    await playMultiVoice(segments, {
       onStart: () => setPlayingMessageId(m.id),
       onEnd: () => setPlayingMessageId(null),
       onError: () => setPlayingMessageId(null)
@@ -149,6 +185,25 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
       return next;
     });
   };
+
+  // 3-dots popover options menu state
+  const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close options menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target as Node)) {
+        setIsOptionsMenuOpen(false);
+      }
+    };
+    if (isOptionsMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOptionsMenuOpen]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const speechRecognitionRef = useRef<any>(null);
@@ -337,18 +392,50 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
   };
 
   const fallbackPersonaImg = persona?.defaultImage || 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500';
-  const [activeMediaUrl, setActiveMediaUrl] = useState<string>(currentMedia || fallbackPersonaImg);
 
+  // 6 Media slots for film carousel
+  const [mediaSlots, setMediaSlots] = useState<string[]>(['', '', '', '', '', '']);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState<number>(0);
+  const videoPlayerRef = useRef<HTMLVideoElement>(null);
+
+  // Sync mediaSlots from scenario or currentMedia
   useEffect(() => {
-    setActiveMediaUrl(currentMedia || fallbackPersonaImg);
-  }, [currentMedia, fallbackPersonaImg]);
+    const slots = ['', '', '', '', '', ''];
+    if (Array.isArray(scenario.mediaList) && scenario.mediaList.length > 0) {
+      scenario.mediaList.forEach((url, i) => {
+        if (i < 6 && url) slots[i] = url;
+      });
+    } else if (currentMedia) {
+      slots[0] = currentMedia;
+    } else if (scenario.coverImage) {
+      slots[0] = scenario.coverImage;
+    } else {
+      slots[0] = fallbackPersonaImg;
+    }
+    setMediaSlots(slots);
+  }, [scenario.id, scenario.coverImage, scenario.mediaList, currentMedia, fallbackPersonaImg]);
 
-  const isVideo = typeof activeMediaUrl === 'string' && (
-    activeMediaUrl.startsWith('data:video') || 
-    activeMediaUrl.includes('video/') || 
-    activeMediaUrl.includes('.mp4') || 
-    activeMediaUrl.includes('.webm')
-  );
+  // Playlist of non-empty slots
+  const filledPlaylist = useMemo(() => {
+    const list = mediaSlots.filter(Boolean);
+    return list.length > 0 ? list : [currentMedia || scenario.coverImage || fallbackPersonaImg];
+  }, [mediaSlots, currentMedia, scenario.coverImage, fallbackPersonaImg]);
+
+  // Safe active media URL
+  const safeIndex = currentMediaIndex < filledPlaylist.length ? currentMediaIndex : 0;
+  const activeMediaUrl = filledPlaylist[safeIndex] || fallbackPersonaImg;
+  const isVideo = isVideoUrl(activeMediaUrl);
+
+  // Smooth manual navigation: arrows move to prev/next without pausing or interrupting video playback
+  const handleAdvanceCarousel = useCallback(() => {
+    if (filledPlaylist.length <= 1) return;
+    setCurrentMediaIndex(prev => (prev + 1) % filledPlaylist.length);
+  }, [filledPlaylist.length]);
+
+  const handlePrevCarousel = useCallback(() => {
+    if (filledPlaylist.length <= 1) return;
+    setCurrentMediaIndex(prev => (prev - 1 + filledPlaylist.length) % filledPlaylist.length);
+  }, [filledPlaylist.length]);
 
   return (
     <div className="w-full h-full min-h-screen bg-[#0d0a14] text-white flex flex-col overflow-hidden font-sans select-none">
@@ -394,6 +481,16 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
           </button>
 
           <button 
+            onClick={() => setIsVoicePickerOpen(true)}
+            className="flex items-center gap-1.5 text-zinc-300 hover:text-white text-xs bg-pink-950/40 hover:bg-pink-900/50 px-2.5 py-1 rounded-full border border-pink-500/30 transition-all cursor-pointer shadow-sm shadow-pink-950/40"
+            title="Cambiar Voces de la Historia (Protagonista, Narradora Sensual, Personajes Secundarios)"
+          >
+            <Volume2 className="w-3.5 h-3.5 text-pink-400" />
+            <span className="font-semibold text-pink-300 hidden sm:inline">Voces</span>
+            <span className="text-[10px] text-zinc-400 font-mono hidden md:inline">({resolveVoiceProfile(scenario.voiceStyle || persona.voice || 'Scarlett_HD').name.split('·')[0].trim()})</span>
+          </button>
+
+          <button 
             onClick={() => setIsImageEngineOpen(true)}
             className="flex items-center gap-1.5 text-xs bg-pink-950/40 hover:bg-pink-900/50 text-pink-300 px-3 py-1 rounded-full border border-pink-500/30 transition-all cursor-pointer shadow-sm shadow-pink-950/50"
             title="Configurar Motor In-Story (4 Pilares: Anclaje de Personaje, Decodificador NLP, Modelo Desbloqueado y Bucle de Coherencia)"
@@ -405,39 +502,8 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
           </button>
         </div>
 
-        {/* Botón para Activar / Desactivar el Chat Escrito */}
-        <button 
-          onClick={() => setIsChatOpen(prev => !prev)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-sm active:scale-95 ${
-            isChatOpen 
-              ? 'bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-pink-500/50 text-pink-200 shadow-sm' 
-              : 'bg-zinc-800/80 hover:bg-zinc-700/80 border-white/10 text-zinc-300 hover:text-white'
-          }`}
-          title={isChatOpen ? "Ocultar chat escrito" : "Abrir chat escrito"}
-        >
-          <MessageSquare className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-          <span className="inline">{isChatOpen ? 'Ocultar Chat' : 'Chat Escrito'}</span>
-          {messages.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-pink-500/20 text-pink-300 text-[10px] font-mono">
-              {messages.length}
-            </span>
-          )}
-        </button>
-
         {/* Right header controls */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Audio Auto-read toggle */}
-          <button
-            onClick={onToggleAutoSpeak}
-            className={`p-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
-              autoSpeak ? 'bg-purple-900/40 text-pink-400 border border-purple-500/30' : 'bg-white/5 text-zinc-400 hover:text-white'
-            }`}
-            title={autoSpeak ? "Voz automática activada" : "Voz automática desactivada"}
-          >
-            {autoSpeak ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            <span className="hidden lg:inline text-[11px]">{autoSpeak ? 'Voz On' : 'Voz Off'}</span>
-          </button>
-
           {/* Quick Voice Call Button */}
           <button
             onClick={() => {
@@ -524,6 +590,16 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
         </div>
       </header>
 
+      {/* Real-time IAAC Audio Expression Badge */}
+      {activeIaacBadge && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-none">
+          <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#1e0e28]/95 backdrop-blur-md border border-pink-500/50 shadow-xl shadow-pink-950/60 text-pink-200 text-xs font-bold tracking-wide">
+            <span className="text-sm animate-pulse">{activeIaacBadge.icon}</span>
+            <span>{activeIaacBadge.name}</span>
+          </div>
+        </div>
+      )}
+
       {/* MAIN DUAL-PANE CONTENT */}
       <main className="flex-1 w-full max-w-[1550px] mx-auto p-2 sm:p-4 md:p-5 flex flex-col md:flex-row gap-4 md:gap-6 overflow-hidden justify-center items-stretch relative">
         {/* CARD CONTAINER (On desktop: Right column order-2 or centered; On mobile: Full screen with optional bottom chat overlay) */}
@@ -562,9 +638,13 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
               {isVideo ? (
                 <video 
                   key={activeMediaUrl}
+                  ref={videoPlayerRef}
                   src={activeMediaUrl}
-                  autoPlay loop muted playsInline
-                  className={`w-full h-full ${mediaFit === 'contain' ? 'object-contain' : 'object-cover'} transition-all duration-700 ${isSpeaking ? 'scale-105' : 'scale-100'}`}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className={`w-full h-full ${mediaFit === 'contain' ? 'object-contain' : 'object-cover'} transition-all duration-700 animate-in fade-in duration-300 ${isSpeaking ? 'scale-105' : 'scale-100'}`}
                 />
               ) : (
                 <img 
@@ -573,11 +653,15 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
                   alt={scenario.title}
                   onError={() => {
                     if (activeMediaUrl !== fallbackPersonaImg) {
-                      setActiveMediaUrl(fallbackPersonaImg);
+                      setMediaSlots(prev => {
+                        const copy = [...prev];
+                        copy[safeIndex] = fallbackPersonaImg;
+                        return copy;
+                      });
                     }
                   }}
                   referrerPolicy="no-referrer"
-                  className={`w-full h-full ${mediaFit === 'contain' ? 'object-contain' : 'object-cover'} transition-all duration-700 ${isSpeaking ? 'scale-105' : 'scale-100'}`}
+                  className={`w-full h-full ${mediaFit === 'contain' ? 'object-contain' : 'object-cover'} transition-all duration-700 animate-in fade-in duration-300 ${isSpeaking ? 'scale-105' : 'scale-100'}`}
                 />
               )}
             </div>
@@ -587,88 +671,8 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
             <div className={`absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-black/60 to-transparent pointer-events-none transition-opacity duration-500 ${isCallActiveOrConnecting ? 'opacity-0' : 'opacity-100'}`} />
           </div>
 
-          {/* Minimal Floating Call / Mic / Relato / Framing Controls */}
+          {/* Compact Top-Right Controls: Phone button + 3-dots options menu */}
           <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-            {/* Botón de Encuadre: Completo (100% visible sin recortes) vs Llenar */}
-            <button
-              type="button"
-              onClick={toggleMediaFit}
-              className={`w-9 h-9 rounded-full border backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
-                mediaFit === 'contain'
-                  ? 'bg-purple-600/80 hover:bg-purple-500 border-purple-400 text-white shadow-purple-950/60'
-                  : 'bg-black/60 hover:bg-black/80 border-white/20 text-zinc-400 hover:text-white'
-              }`}
-              title={
-                mediaFit === 'contain'
-                  ? "Encuadre: COMPLETO (100% visible, sin recortes). Haz clic para llenar pantalla."
-                  : "Encuadre: LLENAR PANTALLA (zoom). Haz clic para encuadre completo sin recortes."
-              }
-            >
-              {mediaFit === 'contain' ? (
-                <Scan className="w-4 h-4 text-white" />
-              ) : (
-                <Maximize2 className="w-4 h-4 text-zinc-400" />
-              )}
-            </button>
-            {/* Botón de Selección de Voz de la Tarjeta */}
-            <button
-              type="button"
-              onClick={() => setIsVoicePickerOpen(true)}
-              className="w-9 h-9 rounded-full border border-pink-500/50 bg-black/60 hover:bg-pink-600/80 backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 text-pink-400 hover:text-white"
-              title={`Voz del personaje: ${resolveVoiceProfile(scenario.voiceStyle || persona.voice).name}. Clic para cambiar o probar la voz.`}
-            >
-              <Volume2 className="w-4 h-4" />
-            </button>
-
-            {/* Botón circular para Activar / Desactivar el Chat Escrito */}
-            <button
-              type="button"
-              onClick={() => setIsChatOpen(prev => !prev)}
-              className={`w-9 h-9 rounded-full border backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
-                isChatOpen
-                  ? 'bg-[#c026d3]/80 hover:bg-[#c026d3] border-pink-400 text-white shadow-purple-950/60'
-                  : 'bg-black/60 hover:bg-black/80 border-white/20 text-zinc-400 hover:text-white'
-              }`}
-              title={isChatOpen ? "Ocultar chat escrito" : "Abrir chat escrito"}
-            >
-              <MessageSquare className="w-4 h-4" />
-            </button>
-
-            {/* Relato circular toggle button: Tal cual como el botón de llamada y micrófono */}
-            {onToggleNarrative && (
-              <button
-                type="button"
-                onClick={onToggleNarrative}
-                className={`w-9 h-9 rounded-full border backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
-                  isNarrativeActive
-                    ? 'bg-purple-600/80 hover:bg-purple-500 border-purple-400 text-white shadow-purple-950/60'
-                    : 'bg-black/60 hover:bg-black/80 border-white/20 text-zinc-400 hover:text-white'
-                }`}
-                title={
-                  isNarrativeActive
-                    ? "Relato: ACTIVADO (con pensamientos y acciones). Haz clic para desactivarlo y pasar a conversación directa."
-                    : "Relato: DESACTIVADO (conversación directa persona a persona). Haz clic para activar el relato con pensamientos."
-                }
-              >
-                <BookOpen className={`w-4 h-4 ${isNarrativeActive ? 'text-white' : 'text-zinc-400'}`} />
-              </button>
-            )}
-
-            {/* When in call, small mute/unmute mic toggle */}
-            {isCallActiveOrConnecting && (
-              <button 
-                onClick={onToggleMute}
-                className={`w-9 h-9 rounded-full border backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
-                  isMuted 
-                    ? 'bg-red-600/80 border-red-500 text-white animate-pulse' 
-                    : 'bg-black/50 hover:bg-black/70 border-white/20 text-white/90'
-                }`}
-                title={isMuted ? "Activar micrófono" : "Silenciar micrófono"}
-              >
-                {isMuted ? <MicOff className="w-4 h-4 text-red-200" /> : <Mic className="w-4 h-4" />}
-              </button>
-            )}
-
             {/* Phone button: GREEN when in call (hover to hang up), RED when hung up (click to call) */}
             <button
               onClick={() => {
@@ -694,19 +698,222 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
                 <Phone className="w-4 h-4" />
               )}
             </button>
+
+            {/* 3-dots Menu Popover Button: Consolidates Chat, Relato, Historial/Reiniciar, Mic, Voice & Framing */}
+            <div className="relative" ref={optionsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsOptionsMenuOpen(prev => !prev)}
+                className={`w-9 h-9 rounded-full border backdrop-blur-md flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 ${
+                  isOptionsMenuOpen
+                    ? 'bg-purple-600 border-purple-400 text-white shadow-purple-950/80 ring-2 ring-purple-400/50'
+                    : 'bg-black/60 hover:bg-black/80 border-white/20 text-zinc-300 hover:text-white'
+                }`}
+                title="Opciones y menú principal"
+                aria-label="Más opciones"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {/* Dropdown Menu Popover */}
+              {isOptionsMenuOpen && (
+                <div className="absolute top-11 right-0 z-30 min-w-[225px] bg-[#161022]/98 backdrop-blur-2xl border border-white/15 rounded-2xl shadow-2xl p-1.5 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150">
+                  {/* Opción 1: Chat Escrito */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChatOpen(prev => !prev);
+                      setIsOptionsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <MessageSquare className="w-4 h-4 text-pink-400" />
+                      <span>Chat Escrito</span>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      isChatOpen ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30' : 'bg-white/5 text-zinc-400'
+                    }`}>
+                      {isChatOpen ? 'Abierto' : 'Oculto'}
+                    </span>
+                  </button>
+
+                  {/* Opción 2: Reiniciar Historia / Limpiar Historial */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRestartStory();
+                      setIsOptionsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <RotateCcw className="w-4 h-4 text-amber-400" />
+                      <span>Reiniciar Historia</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-400">Limpiar</span>
+                  </button>
+
+                  {/* Opción 3: Voz Automática (Corneta) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleAutoSpeak();
+                      setIsOptionsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      {autoSpeak ? <Volume2 className="w-4 h-4 text-pink-400 animate-pulse" /> : <VolumeX className="w-4 h-4 text-zinc-400" />}
+                      <span>Voz Automática</span>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      autoSpeak ? 'bg-pink-500/20 text-pink-300 border border-pink-500/30' : 'bg-white/5 text-zinc-400'
+                    }`}>
+                      {autoSpeak ? 'Activada' : 'Apagada'}
+                    </span>
+                  </button>
+
+                  {/* Opción 4: Modo Relato */}
+                  {onToggleNarrative && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onToggleNarrative();
+                        setIsOptionsMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <BookOpen className="w-4 h-4 text-purple-400" />
+                        <span>Modo Relato</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isNarrativeActive ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-white/5 text-zinc-400'
+                      }`}>
+                        {isNarrativeActive ? 'Con Relato' : 'Solo Diálogo'}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Opción 5: Voces de la Historia (Multi-Voz) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsVoicePickerOpen(true);
+                      setIsOptionsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Volume2 className="w-4 h-4 text-pink-400" />
+                      <span>Voces de la Historia (Multi-Voz)</span>
+                    </div>
+                    <span className="text-[10px] text-pink-400 font-medium">
+                      Configurar 3 roles
+                    </span>
+                  </button>
+
+                  {/* Opción 6: Encuadre de Pantalla */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleMediaFit();
+                      setIsOptionsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      {mediaFit === 'contain' ? <Scan className="w-4 h-4 text-amber-400" /> : <Maximize2 className="w-4 h-4 text-amber-400" />}
+                      <span>Encuadre</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-zinc-300">
+                      {mediaFit === 'contain' ? 'Completo' : 'Llenar'}
+                    </span>
+                  </button>
+
+                  {/* Opción 7: Motor In-Story */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsImageEngineOpen(true);
+                      setIsOptionsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Cpu className="w-4 h-4 text-pink-400" />
+                      <span>Motor In-Story</span>
+                    </div>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  </button>
+
+                  {/* Opción 8 (Solo en llamada): Micrófono */}
+                  {isCallActiveOrConnecting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onToggleMute();
+                        setIsOptionsMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs hover:bg-white/10 text-zinc-200 hover:text-white transition-colors cursor-pointer text-left border-t border-white/5 pt-1.5"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        {isMuted ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+                        <span>Micrófono</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isMuted ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      }`}>
+                        {isMuted ? 'Silenciado' : 'Activo'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Sound waves visualization when character speaks */}
-          {isSpeaking && (
-            <div className="absolute top-5 left-5 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 pointer-events-none">
-              <span className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
-              <div className="flex items-center gap-0.5">
-                <div className="w-1 h-3 bg-pink-500 rounded-full animate-bounce [animation-delay:-0.4s]" />
-                <div className="w-1 h-4 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.2s]" />
-                <div className="w-1 h-3 bg-pink-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+          {/* Top-Left Carousel: ONLY 2 small arrows (back & forward) without pause or dots */}
+          <div className="absolute top-4 left-4 z-20 flex items-center gap-2 pointer-events-auto">
+            {filledPlaylist.length > 1 && (
+              <div className="flex items-center gap-0.5 bg-black/40 hover:bg-black/70 backdrop-blur-md p-1 rounded-full border border-white/10 shadow-lg transition-all">
+                {/* Flecha anterior */}
+                <button
+                  type="button"
+                  onClick={handlePrevCarousel}
+                  className="w-6 h-6 rounded-full hover:bg-white/20 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer active:scale-90"
+                  title="Anterior"
+                  aria-label="Anterior"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Flecha siguiente */}
+                <button
+                  type="button"
+                  onClick={handleAdvanceCarousel}
+                  className="w-6 h-6 rounded-full hover:bg-white/20 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer active:scale-90"
+                  title="Siguiente"
+                  aria-label="Siguiente"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-            </div>
-          )}
+            )}
+
+            {/* Sound waves visualization when character speaks */}
+            {isSpeaking && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 pointer-events-none">
+                <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" />
+                <div className="flex items-center gap-0.5">
+                  <div className="w-1 h-2 bg-pink-500 rounded-full animate-bounce [animation-delay:-0.4s]" />
+                  <div className="w-1 h-2.5 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.2s]" />
+                  <div className="w-1 h-2 bg-pink-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Card Bottom Content: ONLY VISIBLE WHILE NOT IN CALL (completely vanishes the instant call is initiated or active) */}
           {!isCallActiveOrConnecting && (
@@ -760,21 +967,22 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-zinc-400">voz:</span>
+                    <span className="text-zinc-400">Voces:</span>
                     <button
                       type="button"
                       onClick={() => setIsVoicePickerOpen(true)}
                       className="text-xs text-pink-300 hover:text-pink-200 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
-                      title="Haz clic para cambiar la voz del personaje"
+                      title="Haz clic para configurar las voces: Protagonista, Narradora Sensual e Invitados"
                     >
                       <Volume2 className="w-3 h-3 text-pink-400" />
-                      <span>{resolveVoiceProfile(scenario.voiceStyle || persona.voice).name}</span>
+                      <span>{resolveVoiceProfile(scenario.voiceStyle || persona.voice || 'Scarlett_HD').name.split('·')[0].trim()} + Narradora</span>
                     </button>
                   </div>
                 </div>
               </div>
             </div>
           )}
+
 
           {/* Botón flotante en móvil para reabrir el chat cuando está minimizado */}
           {!isChatOpen && (
@@ -860,11 +1068,23 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
                 </button>
 
                 <button
+                  type="button"
                   onClick={onToggleAutoSpeak}
-                  className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
-                  title="Alternar reproducción de voz"
+                  className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                    autoSpeak ? 'bg-purple-900/40 text-pink-400 border border-purple-500/30' : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                  }`}
+                  title={autoSpeak 
+                    ? "Corneta activa: Las respuestas del chat se leen en voz alta. Haz clic para desactivar." 
+                    : "Corneta desactivada (por defecto): El chat no consume créditos de voz en segundo plano. Desbloquea para auto-reproducir o usa el botón 'Escuchar voz' en cada mensaje."}
                 >
-                  {autoSpeak ? <Volume2 className="w-4 h-4 text-pink-400" /> : <VolumeX className="w-4 h-4 text-zinc-500" />}
+                  {autoSpeak ? (
+                    <Volume2 className="w-4 h-4 text-pink-400 animate-pulse" />
+                  ) : (
+                    <VolumeX className="w-4 h-4 text-zinc-500" />
+                  )}
+                  <span className="text-[10px] hidden sm:inline text-zinc-400 font-medium">
+                    {autoSpeak ? 'Voz On' : 'Voz Off'}
+                  </span>
                 </button>
 
                 {/* Botón para Ocultar / Minimizar el Chat */}
@@ -884,12 +1104,13 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
             ref={chatScrollRef}
             className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 scroll-smooth"
           >
-            {messages.map((m) => {
+            {messages.map((m, idx) => {
               const isUser = m.sender === 'user';
+              const safeKey = m.id ? `${m.id}-${idx}` : `msg-${idx}-${m.timestamp || ''}`;
 
               return (
                 <div 
-                  key={m.id}
+                  key={safeKey}
                   className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
                 >
                   {isUser ? (
@@ -1193,18 +1414,37 @@ export const StoryRoleplayView: React.FC<StoryRoleplayViewProps> = ({
         </div>
       )}
 
-      {/* CARD VOICE PICKER MODAL (Universal voice for call, chat & narration) */}
+      {/* CARD VOICE PICKER MODAL (Universal multi-voice orchestrator for call, chat & narration) */}
       <CardVoicePickerModal
         isOpen={isVoicePickerOpen}
         onClose={() => setIsVoicePickerOpen(false)}
-        currentVoiceId={scenario.voiceStyle || persona.voice}
+        currentVoiceId={scenario.voiceStyle || persona.voice || 'Scarlett_HD'}
+        narratorVoiceId={scenario.narratorVoiceId || 'Narradora_Intensa'}
+        guestVoiceId={scenario.guestVoiceId || 'Invitada_Coqueta'}
         characterName={scenario.characterName || persona.name}
-        onSelectVoice={(voiceId) => {
+        onSelectVoice={(voiceId, newNarratorVoiceId, newGuestVoiceId) => {
           onSelectVoice?.(voiceId);
+          try {
+            localStorage.setItem('op_card_voice_id', voiceId);
+            localStorage.setItem('character_selected_voice', voiceId);
+            if (newNarratorVoiceId) {
+              localStorage.setItem('op_card_narrator_voice_id', newNarratorVoiceId);
+            }
+            if (newGuestVoiceId) {
+              localStorage.setItem('op_card_guest_voice_id', newGuestVoiceId);
+            }
+            if (scenario.id) {
+              localStorage.setItem(`scenario_voice_${scenario.id}`, voiceId);
+              if (newNarratorVoiceId) localStorage.setItem(`scenario_narrator_${scenario.id}`, newNarratorVoiceId);
+              if (newGuestVoiceId) localStorage.setItem(`scenario_guest_${scenario.id}`, newGuestVoiceId);
+            }
+          } catch (e) {}
           if (onUpdateScenario) {
             onUpdateScenario({
               ...scenario,
-              voiceStyle: voiceId
+              voiceStyle: voiceId,
+              narratorVoiceId: newNarratorVoiceId || scenario.narratorVoiceId || 'Narradora_Intensa',
+              guestVoiceId: newGuestVoiceId || scenario.guestVoiceId || 'Invitada_Coqueta'
             });
           }
         }}

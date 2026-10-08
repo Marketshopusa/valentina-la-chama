@@ -60,11 +60,15 @@ export interface StoryScenario {
   isExplicit18?: boolean;
   development?: string;
   coverImage?: string;
+  mediaList?: string[]; // Up to 4 video/image URLs for the sequential film carousel
   personaId: string;
   initialPrompt?: string;
   voiceStyle?: string;
+  narratorVoiceId?: string; // Dedicated intense/sensual narrator voice for descriptions and actions
+  guestVoiceId?: string; // Voice for additional guest/secondary characters
   createdAt?: number;
   updatedAt?: number;
+  lastActiveAt?: number;
 }
 
 export interface Persona {

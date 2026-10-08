@@ -1,21 +1,40 @@
 import React from 'react';
-import { Settings, Phone, Trash2, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
+import { Settings, Phone, Trash2, RefreshCw, AlertCircle, Loader2, MicOff, Volume2 } from 'lucide-react';
 import { Persona } from '../types';
 
 interface LandingCardProps {
   persona: Persona;
   image: string;
   onConnect: () => void;
+  onConnectListenOnly?: () => void;
   onEdit: () => void;
   isLoading: boolean;
   error: boolean;
   errorMessage?: string | null;
   isReconnecting?: boolean;
+  onDismissError?: () => void;
 }
 
-const LandingCard: React.FC<LandingCardProps> = ({ persona, image, onConnect, onEdit, isLoading, error, errorMessage, isReconnecting }) => {
+const LandingCard: React.FC<LandingCardProps> = ({ 
+  persona, 
+  image, 
+  onConnect, 
+  onConnectListenOnly,
+  onEdit, 
+  isLoading, 
+  error, 
+  errorMessage, 
+  isReconnecting, 
+  onDismissError 
+}) => {
   const displayImage = image || persona?.defaultImage || 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500';
   const isVideo = typeof displayImage === 'string' && (displayImage.startsWith('data:video') || displayImage.includes('video/') || displayImage.includes('.mp4') || displayImage.includes('.webm'));
+  const isMicError = typeof errorMessage === 'string' && (
+    errorMessage.toLowerCase().includes('micrófono') || 
+    errorMessage.toLowerCase().includes('microfono') || 
+    errorMessage.toLowerCase().includes('permission') ||
+    errorMessage.toLowerCase().includes('permiso')
+  );
 
   return (
     <div className="absolute inset-0 bg-zinc-900 overflow-hidden">
@@ -125,12 +144,77 @@ const LandingCard: React.FC<LandingCardProps> = ({ persona, image, onConnect, on
 
       {error && (
         <div className="absolute top-1/2 left-8 right-8 -translate-y-1/2 text-center z-30 space-y-4 animate-in fade-in zoom-in duration-300">
-          <div className="bg-red-600/90 backdrop-blur-md p-6 rounded-[30px] shadow-2xl border border-red-500/50">
-            <AlertCircle className="w-8 h-8 text-white mx-auto mb-3 animate-bounce" />
-            <p className="text-white font-black text-[11px] uppercase tracking-[0.2em] mb-2">Error de Conexión</p>
-            <p className="text-white/80 text-[10px] leading-relaxed uppercase tracking-widest">
-              {errorMessage || "El servicio no responde. Por favor, intenta de nuevo en unos momentos."}
+          <div className="bg-red-950/95 backdrop-blur-xl p-6 rounded-[30px] shadow-2xl border border-red-500/60 relative">
+            {onDismissError && (
+              <button
+                onClick={onDismissError}
+                className="absolute top-4 right-4 text-white/70 hover:text-white p-1 rounded-full bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+                title="Cerrar advertencia"
+              >
+                ✕
+              </button>
+            )}
+            {isMicError ? (
+              <MicOff className="w-8 h-8 text-pink-400 mx-auto mb-3 animate-pulse" />
+            ) : (
+              <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3 animate-bounce" />
+            )}
+            <p className="text-white font-black text-[12px] uppercase tracking-[0.2em] mb-2">
+              {isMicError ? 'Micrófono Bloqueado en tu Celular' : 'Aviso de Conexión'}
             </p>
+            <p className="text-white/80 text-[11px] leading-relaxed mb-3">
+              {isMicError ? (
+                <>
+                  Tu navegador bloqueó el micrófono. Para activarlo:
+                  <br />
+                  <span className="text-pink-300 font-semibold">• En iPhone / Safari:</span> Toca el botón <b>«aA»</b> o el <b>candado</b> en la barra de direcciones &gt; <b>Permitir Micrófono</b>.
+                  <br />
+                  <span className="text-purple-300 font-semibold">• En Android / Chrome:</span> Toca el <b>candado</b> a la izquierda de la dirección &gt; <b>Permisos &gt; Micrófono &gt; Permitir</b>.
+                </>
+              ) : (
+                errorMessage || "El servicio no responde. Por favor, intenta de nuevo en unos momentos."
+              )}
+            </p>
+            <div className="flex flex-col gap-2">
+              {isMicError && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+                  <button
+                    onClick={() => {
+                      if (onDismissError) onDismissError();
+                      onConnect();
+                    }}
+                    className="w-full px-4 py-2.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-full text-xs font-bold transition-all cursor-pointer shadow-lg shadow-pink-600/30 flex items-center justify-center gap-1.5"
+                  >
+                    <span>🔄 Reintentar Activar Micrófono</span>
+                  </button>
+                  {onConnectListenOnly && (
+                    <button
+                      onClick={onConnectListenOnly}
+                      className="w-full px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white rounded-full text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Volume2 className="w-3.5 h-3.5 text-pink-300" />
+                      <span>Oír Personaje (Sin Micrófono)</span>
+                    </button>
+                  )}
+                </div>
+              )}
+              {!isMicError && (
+                <button
+                  onClick={onEdit}
+                  className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-bold transition-all cursor-pointer"
+                >
+                  Abrir Ajustes / Llave API
+                </button>
+              )}
+              {onDismissError && !isMicError && (
+                <button
+                  onClick={onDismissError}
+                  className="w-full sm:w-auto px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-bold transition-all cursor-pointer"
+                >
+                  Entendido
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

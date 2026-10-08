@@ -1,8 +1,15 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { X, Key, Upload, Trash, XCircle, Sparkles, Volume2, Square, Play } from 'lucide-react';
+import { X, Key, Upload, Trash, XCircle, Sparkles, Volume2, Square, Play, Flame, User, Users } from 'lucide-react';
 import { Persona } from '../types';
 import { LISTA_VOCES } from '../utils/voices';
-import { decode, decodeAudioData } from '../utils/audio';
+import { playVoice, stopAllSpeech } from '../utils/speechPlayer';
+import { 
+  triggerContextualSound, 
+  getIAACVolume, 
+  setIAACVolume, 
+  isIAACMuted, 
+  setIAACMuted 
+} from '../services/iaacAudioEngine';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -32,12 +39,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [instr, setInstr] = useState(currentPersona.instruction);
   const [name, setName] = useState(currentPersona.name);
   const [desc, setDesc] = useState(currentPersona.description);
-  const [selectedVoice, setSelectedVoice] = useState<Persona['voice']>(currentPersona.voice);
+  const [selectedVoice, setSelectedVoice] = useState<Persona['voice']>(currentPersona.voice || 'Scarlett_HD');
+  const [selectedNarratorVoice, setSelectedNarratorVoice] = useState<string>(() => {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem('op_card_narrator_voice_id')) || 'Narradora_Intensa';
+  });
+  const [selectedGuestVoice, setSelectedGuestVoice] = useState<string>(() => {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem('op_card_guest_voice_id')) || 'Invitada_Coqueta';
+  });
+  const [settingsVoiceTab, setSettingsVoiceTab] = useState<'character' | 'narrator' | 'guest'>('character');
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>(currentPersona.id);
   const [isCustom, setIsCustom] = useState<boolean>(currentPersona.isCustom || false);
   const [isGeneratingStory, setIsGeneratingStory] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(null);
+  const [iaacVol, setIaacVolState] = useState<number>(() => Math.round(getIAACVolume() * 100));
+  const [iaacMuted, setIaacMutedState] = useState<boolean>(() => isIAACMuted());
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -87,8 +103,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setPlayingPreviewId(voiceId);
 
     // Prepare custom test text based on style
-    let sampleText = "Hola panita, así de brutal suena mi tono de voz.";
-    if (voiceId === 'Voz_Juvenil') {
+    let sampleText = "Hola cariño, así de hermosa suena mi voz.";
+    if (voiceId === 'Narradora_Intensa') {
+      sampleText = "Se acerca a ti con una mirada penetrante y susurra lentamente mientras roza tu cuello, haciendo que tu piel se estremezca...";
+    } else if (voiceId === 'Narradora_Misterio') {
+      sampleText = "Escúchame en la oscuridad... cada caricia y cada respiración se quedan suspendidas en el aire...";
+    } else if (voiceId === 'Narradora_Elegante') {
+      sampleText = "La noche caía sobre la ciudad mientras una tensión incontrolable envolvía cada rincón de la habitación.";
+    } else if (voiceId === 'Invitada_Coqueta') {
+      sampleText = "¿Qué están haciendo ustedes dos aquí tan juntitos? No me digan que empezaron sin mí...";
+    } else if (voiceId === 'Invitado_Varonil') {
+      sampleText = "Buenas noches. Espero no estar interrumpiendo nada importante por aquí.";
+    } else if (voiceId === 'Scarlett_HD') {
+      sampleText = "Hola amor... así se escucha mi voz Scarlett HD, suave, envolvente y apasionada para ti.";
+    } else if (voiceId === 'Luna_Sweet') {
+      sampleText = "¡Hola corazón! Así suena mi voz Luna Sweet, dulce, pícara y juguetona.";
+    } else if (voiceId === 'Aria_Calm') {
+      sampleText = "Hola. Te habla Aria Calm, con una modulación serena, elegante, pausada y reconfortante.";
+    } else if (voiceId === 'Voz_Juvenil') {
       sampleText = "¡Hola hola! Qué alegría saludarte, mira lo alegre y fresca que se escucha mi voz juvenil.";
     } else if (voiceId === 'Voz_Sensual') {
       sampleText = "Hola cariño... así suena mi voz... cálida, profunda y muy íntima para nosotros.";
@@ -114,108 +146,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       sampleText = "Hola... respira hondo conmigo. Disfruta de esta melodía de paz y absoluta calma.";
     }
 
-    // 1. Prioritize premium server-side Gemini TTS synthesis
+    // 1. Prioritize robust, high-fidelity Gemini TTS audio playback
     try {
-      const resp = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: sampleText, voiceId })
+      await playVoice({
+        text: sampleText,
+        voiceId,
+        onStart: () => setPlayingPreviewId(voiceId),
+        onEnd: () => setPlayingPreviewId(null),
+        onError: () => setPlayingPreviewId(null)
       });
-
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.audioData) {
-          if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-            audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-          }
-          if (audioCtxRef.current.state === 'suspended') {
-            await audioCtxRef.current.resume();
-          }
-
-          const buf = await decodeAudioData(decode(data.audioData), audioCtxRef.current, 24000, 1);
-          const source = audioCtxRef.current.createBufferSource();
-          source.buffer = buf;
-          source.connect(audioCtxRef.current.destination);
-
-          source.onended = () => {
-            if (activeSourceRef.current === source) {
-              setPlayingPreviewId(null);
-              activeSourceRef.current = null;
-            }
-          };
-
-          activeSourceRef.current = source;
-          source.start(0);
-          return;
-        }
-      }
     } catch (err) {
-      console.warn("Backend tts failed, using fallback browser SpeechSynthesis:", err);
-    }
-
-    // 2. Clear & Robust Fallback: Distinct individual local browser voices mapping
-    if ('speechSynthesis' in window) {
-      const matchedVoice = LISTA_VOCES.find(v => v.id === voiceId);
-      const pitch = matchedVoice ? matchedVoice.pitch : 1.0;
-      const rate = matchedVoice ? matchedVoice.rate : 1.0;
-
-      const utterance = new SpeechSynthesisUtterance(sampleText);
-      utterance.pitch = pitch;
-      utterance.rate = 1.1 * rate;
-
-      const systemVoices = window.speechSynthesis.getVoices();
-      const esVoices = systemVoices.filter(v => 
-        v.lang.toLowerCase().startsWith('es') || v.lang.toLowerCase().startsWith('spa')
-      );
-
-      if (esVoices.length > 0) {
-        const maleNames = [
-          'male', 'hombre', 'david', 'paco', 'julio', 'juan', 'jorge', 'raul', 'raúl', 'enrique', 
-          'jose', 'josé', 'miguel', 'carlos', 'manuel', 'gerardo', 'alvaro', 'roberto', 'mateo', 'sabino',
-          'santiago', 'sebastian', 'sebastián', 'alejandro', 'nicolas', 'nicolás', 'diego', 'samuel', 'benjamin', 'benjamín',
-          'joaquin', 'joaquín', 'felipe', 'pablo', 'tomás', 'tomas', 'hector', 'héctor', 'cristian', 'boy', 'man', 'andres', 'andrés',
-          'alfonso', 'javier', 'ignacio', 'luis', 'fernando', 'antonio', 'ramon', 'ramón', 'francisco', 'pedro', 'alberto', 'ricardo',
-          'eduardo', 'hugo', 'adrian', 'adrián', 'marcos', 'gonzalo', 'cesar', 'césar', 'oscar', 'óscar', 'daniel', 'gabriel', 'yago'
-        ];
-        const femaleNames = [
-          'female', 'mujer', 'femenino', 'femenina', 'chica', 'girl', 'lady', 'dama', 'sabina', 'helena', 'elena', 'marisol',
-          'monica', 'mónica', 'paulina', 'zira', 'hilda', 'sara', 'dalia', 'salome', 'salomé', 'ana', 'amalia', 'fabiola',
-          'lola', 'carmen', 'conchita', 'yolanda', 'luisa', 'isabel', 'gabriela', 'valeria', 'sofia', 'sofía', 'clara',
-          'lorena', 'victoria', 'rosa', 'teresa', 'ines', 'inés', 'gloria', 'ameli', 'soledad', 'luciana', 'juana',
-          'camila', 'isabella', 'valentina', 'mariana', 'daniela', 'liliana', 'andrea', 'beatriz', 'estela', 'marta',
-          'martha', 'laura', 'sandra', 'patricia', 'claudia', 'elisa', 'sabrina'
-        ];
-
-        const femaleVoices = esVoices.filter(v => {
-          const nameLower = v.name.toLowerCase();
-          const matchesFemaleName = femaleNames.some(fn => nameLower.includes(fn));
-          const matchesMaleName = maleNames.some(mn => nameLower.includes(mn));
-          return matchesFemaleName || !matchesMaleName; // prefer female, exclude explicitly male names
-        });
-
-        const pool = femaleVoices.length > 0 ? femaleVoices : esVoices;
-        
-        // Use index mapping to distribute different voices!
-        const voiceIndex = LISTA_VOCES.findIndex(v => v.id === voiceId);
-        const selectedIndex = voiceIndex !== -1 ? (voiceIndex % pool.length) : 0;
-        const chosenVoice = pool[selectedIndex] || pool[0];
-
-        if (chosenVoice) {
-          utterance.voice = chosenVoice;
-          utterance.lang = chosenVoice.lang;
-        }
-      }
-
-      utterance.onend = () => {
-        setPlayingPreviewId(null);
-      };
-      utterance.onerror = () => {
-        setPlayingPreviewId(null);
-      };
-
-      window.speechSynthesis.speak(utterance);
-    } else {
-      alert("Tu navegador no soporta reproducción de voz.");
+      console.warn("Audio preview failed:", err);
+      setPlayingPreviewId(null);
     }
   };
 
@@ -271,6 +213,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleSave = () => {
+    try {
+      localStorage.setItem('op_card_voice_id', selectedVoice);
+      localStorage.setItem('op_card_narrator_voice_id', selectedNarratorVoice);
+      localStorage.setItem('op_card_guest_voice_id', selectedGuestVoice);
+    } catch (e) {}
+
     onUpdateSettings({
       id: selectedPersonaId,
       name,
@@ -368,6 +316,92 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </section>
 
+        {/* Sistema de Expresiones, Gemidos y Sonidos Físicos (IAAC) */}
+        <section className="space-y-4 p-4 bg-pink-600/5 border border-pink-500/20 rounded-3xl">
+          <div className="flex justify-between items-start gap-3">
+            <div>
+              <label className="text-[10px] font-black text-pink-400 uppercase tracking-widest block font-mono">
+                Expresiones, Gemidos y Efectos Físicos (IAAC)
+              </label>
+              <p className="text-[9px] text-white/50 font-mono mt-0.5 leading-relaxed">
+                Efectos foley y vocalizaciones automáticas generadas durante momentos íntimos, caricias y acciones físicas.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const nextMuted = !iaacMuted;
+                setIaacMutedState(nextMuted);
+                setIAACMuted(nextMuted);
+              }}
+              className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer shrink-0 ${
+                !iaacMuted 
+                  ? 'bg-pink-600/20 text-pink-300 border border-pink-500/40 shadow-sm shadow-pink-500/10' 
+                  : 'bg-white/5 text-white/30 border border-white/10'
+              }`}
+            >
+              {!iaacMuted ? '🔊 ACTIVADOS' : '🔇 SILENCIADOS'}
+            </button>
+          </div>
+
+          <div className="space-y-1.5 bg-black/30 p-3 rounded-2xl border border-white/5">
+            <div className="flex justify-between text-[10px] text-white/60 font-mono">
+              <span>Volumen de Gemidos y Sonidos Físicos</span>
+              <span className="text-pink-400 font-bold">{iaacVol}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={iaacVol}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                setIaacVolState(v);
+                setIAACVolume(v / 100);
+              }}
+              className="w-full accent-pink-500 bg-white/10 rounded-lg cursor-pointer h-1.5"
+            />
+          </div>
+
+          <div>
+            <span className="text-[9px] text-white/40 uppercase tracking-widest block font-mono mb-2">Probar Efectos Inmediatos:</span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => triggerContextualSound('gemidos_suspiros', 8)}
+                className="px-3 py-2.5 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 rounded-2xl text-[10px] text-pink-200 font-semibold transition-all text-left flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                <span className="text-sm">💋</span>
+                <span>Gemido de Placer</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerContextualSound('body_slap_spank', 9)}
+                className="px-3 py-2.5 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 rounded-2xl text-[10px] text-pink-200 font-semibold transition-all text-left flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                <span className="text-sm">👋</span>
+                <span>Nalgada / Azote</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerContextualSound('intimate_mouth_interaction', 8)}
+                className="px-3 py-2.5 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 rounded-2xl text-[10px] text-pink-200 font-semibold transition-all text-left flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                <span className="text-sm">👅</span>
+                <span>Beso y Succión</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerContextualSound('heavy_panting_breath', 8)}
+                className="px-3 py-2.5 bg-pink-950/40 hover:bg-pink-900/60 border border-pink-500/30 rounded-2xl text-[10px] text-pink-200 font-semibold transition-all text-left flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                <span className="text-sm">💨</span>
+                <span>Jadeo Agitado</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
         <section className="space-y-4">
           <label className="text-[10px] font-black text-white/30 uppercase tracking-widest block font-mono">Fondo Visual (Imagen/Video)</label>
           <div className="w-full aspect-video rounded-3xl overflow-hidden bg-black border border-white/5 relative flex items-center justify-center shadow-inner group">
@@ -441,31 +475,112 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <section className="space-y-4">
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-white/30 uppercase tracking-widest block font-mono">Seleccionar Voz de IA</label>
+            <label className="text-[10px] font-black text-white/30 uppercase tracking-widest block font-mono">Voces y Dramatización de IA</label>
             <p className="text-[9px] text-zinc-500 leading-relaxed font-mono">
-              Voces neurales base y nuevos perfiles de voz femenina de alta calidad. Al elegir, la inteligencia modula su tono automáticamente de acuerdo a la descripción.
+              Configura las 3 voces del sistema: diálogo de la protagonista, relato de la narradora sensual (eriza la piel) y personajes secundarios o invitados.
             </p>
           </div>
+
+          {/* Voice Category Tabs */}
+          <div className="flex items-center gap-1 p-1 bg-black/40 border border-white/5 rounded-xl">
+            <button
+              type="button"
+              onClick={() => {
+                stopAllSpeech();
+                setPlayingPreviewId(null);
+                setSettingsVoiceTab('character');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1.5 transition-all ${
+                settingsVoiceTab === 'character'
+                  ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <User className="w-3 h-3" />
+              <span>Protagonista</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                stopAllSpeech();
+                setPlayingPreviewId(null);
+                setSettingsVoiceTab('narrator');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1.5 transition-all ${
+                settingsVoiceTab === 'narrator'
+                  ? 'bg-gradient-to-r from-red-600 to-pink-600 text-white shadow-md shadow-red-600/20'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Flame className="w-3 h-3 text-amber-400" />
+              <span>Narradora Sensual</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                stopAllSpeech();
+                setPlayingPreviewId(null);
+                setSettingsVoiceTab('guest');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1.5 transition-all ${
+                settingsVoiceTab === 'guest'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3 h-3" />
+              <span>Invitados</span>
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-            {LISTA_VOCES.map((v) => {
-              const isSelected = selectedVoice === v.id;
+            {LISTA_VOCES.filter(v => {
+              if (settingsVoiceTab === 'narrator') {
+                return v.id.includes('Narrador') || v.id.includes('Sensual') || v.id.includes('Susurr') || v.id.includes('Aria') || v.id.includes('Pausada');
+              }
+              if (settingsVoiceTab === 'guest') {
+                return v.id.includes('Invitad') || v.id.includes('Masculin') || v.id.includes('Luna') || v.id.includes('Juvenil') || v.id.includes('Caribena');
+              }
+              return !v.id.includes('Narrador');
+            }).map((v) => {
+              const currentActiveId = 
+                settingsVoiceTab === 'character' ? selectedVoice :
+                settingsVoiceTab === 'narrator' ? selectedNarratorVoice :
+                selectedGuestVoice;
+
+              const isSelected = currentActiveId === v.id;
               const isPlaying = playingPreviewId === v.id;
+
               return (
                 <div
                   key={v.id}
-                  onClick={() => setSelectedVoice(v.id)}
+                  onClick={() => {
+                    if (settingsVoiceTab === 'character') {
+                      setSelectedVoice(v.id);
+                    } else if (settingsVoiceTab === 'narrator') {
+                      setSelectedNarratorVoice(v.id);
+                    } else {
+                      setSelectedGuestVoice(v.id);
+                    }
+                  }}
                   className={`p-3 rounded-2xl text-left border cursor-pointer transition-all flex flex-col justify-between min-h-[110px] select-none ${
                     isSelected 
-                      ? 'bg-red-600/10 border-red-600 text-white shadow-md shadow-red-600/5' 
+                      ? settingsVoiceTab === 'narrator'
+                        ? 'bg-red-600/15 border-red-500 text-white shadow-md shadow-red-600/10'
+                        : settingsVoiceTab === 'guest'
+                          ? 'bg-purple-600/15 border-purple-500 text-white shadow-md shadow-purple-600/10'
+                          : 'bg-pink-600/15 border-pink-500 text-white shadow-md shadow-pink-600/10'
                       : 'bg-[#121214]/50 border-white/5 text-white/80 hover:bg-white/5 hover:border-white/10'
                   }`}
                 >
                   <div>
                     <div className="flex items-start justify-between gap-1">
-                      <span className={`text-[10px] font-black uppercase tracking-wider font-mono leading-tight ${isSelected ? 'text-red-500' : 'text-white'}`}>
+                      <span className={`text-[10px] font-black uppercase tracking-wider font-mono leading-tight ${isSelected ? 'text-pink-400' : 'text-white'}`}>
                         {v.name}
                       </span>
-                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse shrink-0 mt-0.5" />}
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse shrink-0 mt-0.5" />}
                     </div>
                     <p className="text-[9px] text-[#8e8e93] line-clamp-2 mt-1 leading-normal font-sans">
                       {v.description}
@@ -477,9 +592,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     onClick={(e) => handlePlayPreview(e, v.id)}
                     className={`mt-2 py-1.5 px-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer font-mono shrink-0 w-full active:scale-95 ${
                       isPlaying 
-                        ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' 
+                        ? 'bg-pink-600 text-white shadow-lg shadow-pink-600/20' 
                         : isSelected
-                          ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30'
+                          ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30'
                           : 'bg-white/5 hover:bg-white/10 text-white/70'
                     }`}
                   >

@@ -1,60 +1,61 @@
 import { StoryScenario } from '../types';
 
-export const OFFICIAL_PRESENTATION_SCENARIO: StoryScenario = {
-  id: 'presentacion_valentina',
-  title: 'Conoce a tu persona ideal',
-  synopsis: 'Una charla íntima y cercana para dar forma a la voz, personalidad y encanto del personaje que tú elijas.',
-  characterName: 'Tu Persona Ideal',
-  characterRole: 'compañera',
-  userRole: 'invitado',
-  userName: 'William',
-  storyType: 'Presentación',
-  isExplicit18: false,
+export const STORY_HERMANASTROS_CABANA: StoryScenario = {
+  id: 'template_hermanastros_cabana',
+  title: 'Hermanastros en la Cabaña',
+  characterName: 'Elisa',
+  characterRole: 'Elisa hermanastra',
+  userRole: 'william',
+  userName: 'william',
+  storyType: 'Juego de Roles',
+  isExplicit18: true,
+  voiceStyle: 'scarlett_hd',
+  coverImage: '/uploads/cover_story_1790010634218.jpg',
   personaId: 'persona_ideal',
-  coverImage: 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500',
-  development: 'Un personaje cálido, cercano y totalmente adaptable al acento, tono, carácter y nombre que tú le indiques.'
+  synopsis: 'Una escapada entre hermanos a la cabaña del viejo abuelo',
+  development: 'El aire fresco de la montaña envolvía la casa rústica de madera.\n[Parámetro de voz]: Su voz es Scarlett HD: femenina, suave, seductora y apasionada.'
 };
 
-export const DEFAULT_SCENARIOS: StoryScenario[] = [
-  OFFICIAL_PRESENTATION_SCENARIO,
-  {
-    id: 'secreto_hermanastros',
+export const STORY_DAMA_DE_HONOR: StoryScenario = {
+  id: 'template_dama_de_honor',
+  title: 'La Dama de Honor',
+  characterName: 'Estefani',
+  characterRole: 'Estefani',
+  userRole: 'willian',
+  userName: 'willian',
+  storyType: 'Juego de Roles',
+  isExplicit18: true,
+  voiceStyle: 'scarlett_hd',
+  coverImage: '/uploads/cover_story_1790000609910.jpg',
+  personaId: 'persona_ideal',
+  synopsis: 'Ella es la dama de honor de su mejor amiga',
+  development: 'Está un poco aburrida de la fiesta y decide explorar los alrededores.\n[Parámetro de voz]: Su voz es Scarlett HD: femenina, suave, seductora y apasionada.'
+};
 
-    title: 'secreto de hermanastros',
-    synopsis: 'Hermanos que descubren el deseo entre ambos En un fin de semana',
-    characterName: 'Valentina',
-    characterRole: 'hermanastra',
-    userRole: 'hermano',
-    userName: 'willian',
-    storyType: 'Juego de Roles',
-    isExplicit18: true,
-    personaId: 'ven_ccs',
-    coverImage: 'https://images.unsplash.com/photo-1524250502761-1ac6f2e30d43?auto=format&fit=crop&q=80&w=1500'
-  },
-  {
-    id: 'vecina_tormenta',
-    title: 'la vecina de al lado',
-    synopsis: 'Una noche de lluvia intensa donde tu vecina busca refugio en tu departamento',
-    characterName: 'María',
-    characterRole: 'vecina',
-    userRole: 'vecino',
-    userName: 'willian',
-    storyType: 'Romance Apasionado',
-    isExplicit18: true,
-    personaId: 'ven_gocha',
-    coverImage: 'https://images.unsplash.com/photo-1590650153855-d9e808231d41?auto=format&fit=crop&q=80&w=1500'
-  },
-  {
-    id: 'pasion_prohibida',
-    title: 'encuentro en la oficina',
-    synopsis: 'Horas extra en la oficina vacía donde la atracción ya no se puede contener',
-    characterName: 'Mariana',
-    characterRole: 'compañera',
-    userRole: 'compañero',
-    userName: 'willian',
-    storyType: 'Juego de Roles',
-    isExplicit18: true,
-    personaId: 'col_paisa',
-    coverImage: 'https://images.unsplash.com/photo-1589156280159-27698a70f29e?auto=format&fit=crop&q=80&w=1500'
-  }
+export const STORY_HERMANASTRA_ROXANA: StoryScenario = {
+  id: 'template_hermanastra_roxana',
+  title: 'Hermanastra',
+  synopsis: 'Él va una noche a casa de su novia y se confunde de habitación',
+  characterName: 'Roxana',
+  characterRole: 'cuñada',
+  userRole: 'Willian (novio)',
+  userName: 'Willian (novio)',
+  storyType: 'Juego de Roles',
+  isExplicit18: true,
+  voiceStyle: 'scarlett_hd',
+  coverImage: '/uploads/cover_story_1789920190596.mp4',
+  personaId: 'ven_ccs',
+  development: 'Una noche imprevista en la casa familiar.\n[Parámetro de voz]: Su voz es Scarlett HD: femenina, suave, seductora y apasionada.'
+};
+
+export const DEFAULT_USER_STORY_SCENARIO: StoryScenario = STORY_HERMANASTROS_CABANA;
+
+export const OFFICIAL_PRESENTATION_SCENARIO: StoryScenario = STORY_HERMANASTROS_CABANA;
+
+// Colección starter de respaldo cuando el usuario no tiene ninguna historia
+export const DEFAULT_SCENARIOS: StoryScenario[] = [
+  STORY_HERMANASTROS_CABANA,
+  STORY_DAMA_DE_HONOR,
+  STORY_HERMANASTRA_ROXANA
 ];
+

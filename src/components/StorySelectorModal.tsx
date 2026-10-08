@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, BookOpen, Plus, Play, Sparkles, User, Flame, Trash2, Film } from 'lucide-react';
 import { StoryScenario, Persona } from '../types';
 import { CreateStoryModal } from './CreateStoryModal';
@@ -32,6 +32,15 @@ export const StorySelectorModal: React.FC<StorySelectorModalProps> = ({
   onDeleteScenario
 }) => {
   const [isCreating, setIsCreating] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!confirmDeleteId) return;
+    const timer = setTimeout(() => {
+      setConfirmDeleteId(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [confirmDeleteId]);
 
   if (!isOpen) return null;
 
@@ -114,34 +123,38 @@ export const StorySelectorModal: React.FC<StorySelectorModalProps> = ({
                   `}
                 >
                   <div>
-                    {scen.coverImage && (
-                      <div className="h-32 -mx-4 -mt-4 mb-3 overflow-hidden relative bg-black/50">
-                        {hasVideo ? (
-                          <video 
-                            src={scen.coverImage} 
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                        ) : (
-                          <img 
-                            src={scen.coverImage} 
-                            alt={scen.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                            referrerPolicy="no-referrer"
-                          />
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#141021] via-[#141021]/30 to-transparent pointer-events-none" />
-                        {hasVideo && (
-                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-sm text-[10px] text-pink-300 font-medium flex items-center gap-1 pointer-events-none">
-                            <Film className="w-3 h-3" />
-                            <span>Video</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {(() => {
+                      const displayCover = scen.coverImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=1500';
+                      const isVid = isVideoMedia(displayCover);
+                      return (
+                        <div className="h-32 -mx-4 -mt-4 mb-3 overflow-hidden relative bg-black/50">
+                          {isVid ? (
+                            <video 
+                              src={displayCover} 
+                              autoPlay
+                              loop
+                              muted
+                              playsInline
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                          ) : (
+                            <img 
+                              src={displayCover} 
+                              alt={scen.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-[#141021] via-[#141021]/30 to-transparent pointer-events-none" />
+                          {isVid && (
+                            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-sm text-[10px] text-pink-300 font-medium flex items-center gap-1 pointer-events-none">
+                              <Film className="w-3 h-3" />
+                              <span>Video</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <h3 className="font-bold text-white capitalize text-sm group-hover:text-pink-400 transition-colors truncate">
@@ -158,14 +171,22 @@ export const StorySelectorModal: React.FC<StorySelectorModalProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (window.confirm(`¿Estás seguro de eliminar la historia "${scen.title}"?`)) {
+                              if (confirmDeleteId === scen.id) {
                                 onDeleteScenario(scen.id);
+                                setConfirmDeleteId(null);
+                              } else {
+                                setConfirmDeleteId(scen.id);
                               }
                             }}
-                            className="p-1 rounded-lg bg-black/50 hover:bg-rose-600/80 text-zinc-400 hover:text-white transition-all cursor-pointer"
-                            title="Eliminar historia"
+                            className={`p-1 px-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                              confirmDeleteId === scen.id
+                                ? 'bg-rose-600 text-white animate-pulse'
+                                : 'bg-black/50 hover:bg-rose-600/80 text-zinc-400 hover:text-white'
+                            }`}
+                            title={confirmDeleteId === scen.id ? "Haz clic de nuevo para confirmar" : "Eliminar historia"}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
+                            {confirmDeleteId === scen.id && <span>¿Borrar?</span>}
                           </button>
                         )}
                       </div>

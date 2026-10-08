@@ -113,7 +113,8 @@ class IAACAudioEngine {
    * Encuentra el mejor archivo en la biblioteca para un eventType e intensidad dada
    */
   public findBestSFXMatch(eventType: string, targetIntensity: number): SFXMetadata | null {
-    const candidates = SFX_LIBRARY.filter(item => item.eventType === eventType);
+    const lookupType = eventType === 'body_slap_spank' ? 'impact_body_surface' : eventType;
+    const candidates = SFX_LIBRARY.filter(item => item.eventType === lookupType);
     if (candidates.length === 0) return null;
 
     // Find closest intensity
@@ -394,6 +395,49 @@ class IAACAudioEngine {
       osc.start(now);
       osc.stop(now + 0.65);
 
+    } else if (eventType === 'gemidos_suspiros') {
+      // 10b. Gemido femenino / suspiro íntimo procedural
+      const osc = ctx.createOscillator();
+      const oscGain = ctx.createGain();
+      osc.type = 'sine';
+      // Curva melódica sensual: sube ligeramente y desciende con suavidad
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(460, now + 0.25);
+      osc.frequency.exponentialRampToValueAtTime(240, now + 0.85);
+
+      oscGain.gain.setValueAtTime(0.01, now);
+      oscGain.gain.linearRampToValueAtTime(0.75 * force, now + 0.2);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+      // Capa de respiración / aire sutil
+      const breathBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.9), ctx.sampleRate);
+      const data = breathBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1) * 0.15;
+      }
+      const breathSrc = ctx.createBufferSource();
+      breathSrc.buffer = breathBuffer;
+      const breathFilter = ctx.createBiquadFilter();
+      breathFilter.type = 'bandpass';
+      breathFilter.frequency.setValueAtTime(900, now);
+      breathFilter.Q.setValueAtTime(2.0, now);
+
+      const breathGain = ctx.createGain();
+      breathGain.gain.setValueAtTime(0.01, now);
+      breathGain.gain.linearRampToValueAtTime(0.25 * force, now + 0.25);
+      breathGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+      osc.connect(oscGain);
+      oscGain.connect(sfxGain);
+      breathSrc.connect(breathFilter);
+      breathFilter.connect(breathGain);
+      breathGain.connect(sfxGain);
+
+      osc.start(now);
+      osc.stop(now + 0.9);
+      breathSrc.start(now);
+      breathSrc.stop(now + 0.9);
+
     } else if (eventType === 'intimate_mouth_interaction') {
       // 10. Succión / chupar / beso húmedo
       const osc = ctx.createOscillator();
@@ -508,7 +552,25 @@ export function triggerContextualSound(eventType: string, intensity: number = 7)
   return iaacAudioEngine.triggerContextualSound(eventType, intensity);
 }
 
+export function setIAACVolume(vol: number): void {
+  iaacAudioEngine.setVolume(vol);
+}
+
+export function getIAACVolume(): number {
+  return iaacAudioEngine.getVolume();
+}
+
+export function setIAACMuted(muted: boolean): void {
+  iaacAudioEngine.setMuted(muted);
+}
+
+export function isIAACMuted(): boolean {
+  return iaacAudioEngine.getIsMuted();
+}
+
 if (typeof window !== 'undefined') {
   (window as any).triggerContextualSound = triggerContextualSound;
+  (window as any).setIAACVolume = setIAACVolume;
+  (window as any).setIAACMuted = setIAACMuted;
 }
 

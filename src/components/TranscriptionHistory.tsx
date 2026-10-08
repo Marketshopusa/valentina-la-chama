@@ -45,8 +45,8 @@ const TranscriptionHistory: React.FC<TranscriptionHistoryProps> = ({
         </div>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((m) => (
-            <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+          {messages.map((m, idx) => (
+            <div key={m.id ? `${m.id}-${idx}` : `hist-msg-${idx}`} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-lg ${m.sender === 'user' ? 'bg-red-600/80 backdrop-blur-sm text-white rounded-br-none' : 'bg-black/40 backdrop-blur-md text-white/90 rounded-bl-none border border-white/10'}`}>
                 {m.text}
               </div>
